@@ -1,36 +1,25 @@
 # ===========================================
-# REQUISITOS PARA SISTEMA DE ANÁLISIS DE CVs
+# REQUISITOS DEL NÚCLEO DE IA
 # ===========================================
+# Este archivo se mantiene por compatibilidad con la documentación.
+# En producción se usa el requirements.txt de la raíz.
 
-# PyTorch (CPU only - más ligero para producción)
-torch
+torch>=2.0,<3.0
+transformers>=4.30,<5.0
+tokenizers>=0.13,<1.0
+spacy>=3.5,<4.0
 
-# Transformers y NLP
-transformers>=4.30.0
-spacy>=3.5.0
+pandas>=1.5,<3.0
+numpy>=1.23,<3.0
+scikit-learn>=1.2,<2.0
 
-# Descarga de modelo desde Google Drive
+pymupdf>=1.22,<2.0
+pytesseract>=0.3.10
+Pillow>=9.0
+
+deep-translator>=1.11.0
+langdetect>=1.0.9
 gdown>=4.6.0
 
-# Preprocesamiento y análisis de datos
-pandas>=1.5.0
-numpy>=1.23.0
-scikit-learn>=1.2.0
-
-# PDFs y OCR
-pymupdf>=1.22.0
-pytesseract>=0.3.10
-Pillow>=9.0.0
-
-# Traducción
-deep-translator>=1.11.0
-
-# Utilidades
-tqdm>=4.65.0
-langdetect>=1.0.9
-
-# Archivos estáticos
-whitenoise>=6.0.0
-
-# Servidor de producción
 gunicorn>=20.0.0
+whitenoise>=6.0.0

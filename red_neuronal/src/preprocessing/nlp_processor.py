@@ -22,8 +22,38 @@ Dependencias:
 """
 
 import re                      # Expresiones regulares para detección de tech
-import spacy                  # Framework de NLP (spaCy)
+import threading              # Inicialización segura del singleton
 from typing import Dict, List, Tuple, Optional  # Type hints
+
+import spacy                  # Framework de NLP (spaCy)
+
+from .section_extractor import extract_sections as _extract_sections
+from .skill_extractor import contains_skill
+
+
+# Tecnologías detectables. Se comparan como término completo para evitar
+# falsos positivos (por ejemplo, "Go" dentro de "Google").
+TECH_TERMS = [
+    "Python", "Java", "JavaScript", "TypeScript", "C++", "C#", "Ruby", "Go",
+    "Rust", "Kotlin", "Swift", "PHP", "R", "Scala", "Perl", "Django", "Flask",
+    "Spring", "Rails", "Express", "NestJS", "React", "Vue", "Angular", "Node.js",
+    "Node", "SQL", "MySQL", "PostgreSQL", "MongoDB", "Redis", "Oracle",
+    "Elasticsearch", "Cassandra", "AWS", "GCP", "Azure", "Docker", "Kubernetes",
+    "Terraform", "Git", "GitHub", "GitLab", "Jira", "TensorFlow", "PyTorch",
+    "Keras", "Scikit-learn", "Pandas", "NumPy", "HTML", "CSS", "Bootstrap",
+    "Tailwind", "Linux", "Jenkins", "Ansible", "Spark", "Hadoop", "Tableau",
+    "Power BI", "Excel", "Machine Learning", "Deep Learning", "NLP",
+]
+
+# Alias que deben mostrarse con una forma canónica.
+TECH_CANONICAL = {
+    "scikit": "Scikit-learn",
+    "scikit-learn": "Scikit-learn",
+    "nodejs": "Node.js",
+    "node": "Node.js",
+    "powerbi": "Power BI",
+    "power bi": "Power BI",
+}
 
 
 class NLPProcessor:
@@ -78,7 +108,14 @@ class NLPProcessor:
         # Aumentar límite de longitud para textos largos
         self.nlp.max_length = 2000000
     
-    def process(self, text: str) -> Dict:
+    def process(
+        self,
+        text: str,
+        include_tokens: bool = True,
+        include_sentences: bool = True,
+        include_noun_chunks: bool = True,
+        include_dependencies: bool = True,
+    ) -> Dict:
         """
         Procesa un texto y retorna información NLP completa.
         
@@ -112,16 +149,21 @@ class NLPProcessor:
         """
         # Limitar longitud del texto (spaCy tiene límite de ~1M caracteres)
         doc = self.nlp(text[:100000])
-        
-        return {
+
+        result = {
             'entities': self._extract_entities(doc),
             'lemmatized': self._get_lemmas(doc),
-            'tokens': self._get_tokens(doc),
-            'sentences': self._get_sentences(doc),
             'pos_tags': self._get_pos_tags(doc),
-            'noun_chunks': self._get_noun_chunks(doc),
-            'dependencies': self._get_dependencies(doc)
         }
+        if include_tokens:
+            result['tokens'] = self._get_tokens(doc)
+        if include_sentences:
+            result['sentences'] = self._get_sentences(doc)
+        if include_noun_chunks:
+            result['noun_chunks'] = self._get_noun_chunks(doc)
+        if include_dependencies:
+            result['dependencies'] = self._get_dependencies(doc)
+        return result
     
     def _extract_entities(self, doc) -> Dict:
         """
@@ -162,39 +204,23 @@ class NLPProcessor:
                 entities[ent.label_].append(ent.text)
         
         # =================================================================
-        # DETECCIÓN DE TECNOLOGÍAS (Patrones Regex)
+        # DETECCIÓN DE TECNOLOGÍAS
         # =================================================================
-        # SpaCy no tiene entidad TECH, así que usamos regex
-        
-        # Lista de patrones de tecnologías conocidas
-        tech_patterns = [
-            # Lenguajes de programación
-            r'\b(Python|Java|JavaScript|C\+\+|C#|Ruby|Go|Rust|Kotlin|Swift)\b',
-            # Frameworks web
-            r'\b(Django|Flask|Spring|Rails|Express|Nest)\b',
-            # Frontend
-            r'\b(React|Vue|Angular|Node|Express)\b',
-            # Bases de datos
-            r'\b(SQL|MongoDB|Redis|PostgreSQL|MySQL|Oracle)\b',
-            # Cloud y DevOps
-            r'\b(AWS|GCP|Azure|Docker|Kubernetes)\b',
-            # Herramientas
-            r'\b(Git|GitHub|Jira|Docker|Terraform)\b',
-            # ML/AI
-            r'\b(TensorFlow|PyTorch|Keras|Scikit)\b',
-            # Web básico
-            r'\b(HTML|CSS|Bootstrap|Tailwind)\b'
-        ]
-        
+        # SpaCy no tiene entidad TECH, así que comparamos una lista de
+        # tecnologías conocidas como términos completos.
         text_lower = doc.text.lower()
         found_tech = set()
-        
-        # Buscar cada patrón en el texto
-        for pattern in tech_patterns:
-            matches = re.findall(pattern, text_lower, re.IGNORECASE)
-            found_tech.update([m.title() for m in matches])
-        
-        entities['TECH'] = list(found_tech)
+
+        # "Go" y "R" son ambiguos en minúsculas ("go to", "r"). Exigir la
+        # grafía exacta reduce falsos positivos.
+        ambiguous = {"Go", "R"}
+        for term in TECH_TERMS:
+            haystack = doc.text if term in ambiguous else text_lower
+            if contains_skill(haystack, term, case_sensitive=term in ambiguous):
+                canonical = TECH_CANONICAL.get(term.lower(), term)
+                found_tech.add(canonical)
+
+        entities['TECH'] = sorted(found_tech)
         
         # =================================================================
         # DETECCIÓN DE EDUCACIÓN
@@ -335,96 +361,36 @@ class NLPProcessor:
     def extract_sections(self, text: str) -> Dict[str, str]:
         """
         Extrae secciones relevantes del currículum.
-        
-        Secciones detectadas:
-        - experience: experiencia laboral
-        - education: formación académica
-        - skills: habilidades técnicas
-        - projects: proyectos
-        - contact: información de contacto
-        
-        Proceso:
-        1. Buscar patrones de cada sección en el texto
-        2. Extraer texto entre patrones
-        3. Manejar casos donde no se encuentra ninguna sección
-        
-        Args:
-            text: texto completo del CV
-        
-        Returns:
-            dict: {sección: contenido}
+
+        La implementación vive en ``section_extractor`` para poder probarla
+        sin cargar el modelo de spaCy.
         """
-        # Patrones regex para identificar secciones
-        section_patterns = {
-            'experience': r'(?:experience|work history|employment|professional|career)',
-            'education': r'(?:education|academic|degree|university|college|studies)',
-            'skills': r'(?:skills|technologies|competencies|expertise|proficiencies)',
-            'projects': r'(?:projects|portfolio|achievements)',
-            'contact': r'(?:contact|email|phone|address|location)'
-        }
-        
-        sections = {}
-        text_lower = text.lower()
-        
-        # Buscar cada sección
-        for section_name, pattern in section_patterns.items():
-            match = re.search(pattern, text_lower)
-            if match:
-                start = match.start()
-                # Buscar el inicio de la siguiente sección
-                next_match = re.search(pattern, text_lower[start+10:])
-                if next_match:
-                    end = start + 10 + next_match.start()
-                else:
-                    end = len(text)
-                sections[section_name] = text[start:end].strip()
-            else:
-                sections[section_name] = ""
-        
-        return sections
+        return _extract_sections(text)
     
     # =================================================================
     # EXTRACCIÓN DE SKILLS
     # =================================================================
     
-    def get_skills_from_ner(self, text: str) -> List[str]:
+    def get_skills_from_ner(
+        self, text: str, nlp_result: Optional[Dict] = None
+    ) -> List[str]:
         """
         Extrae habilidades técnicas del texto.
-        
-        Combina:
-        - Entidades TECH detectadas por regex
-        - Palabras clave de tecnologías en el texto
-        
-        Args:
-            text: texto del CV
-        
-        Returns:
-            list: skills detectados (únicos)
+
+        Si ya se procesó el texto con ``process()``, se puede pasar
+        ``nlp_result`` para evitar ejecutar spaCy dos veces.
         """
-        # Usar el método de extracción de entidades
-        result = self.process(text)
-        skills = set()
-        
-        # Agregar tecnologías de NER
-        skills.update(result['entities'].get('TECH', []))
-        
-        # Lista de keywords de technologies known
-        tech_keywords = [
-            'python', 'java', 'javascript', 'c++', 'c#', 'ruby', 'go', 'rust', 
-            'kotlin', 'swift', 'html', 'css', 'sql', 'mysql', 'postgresql', 
-            'mongodb', 'redis', 'docker', 'kubernetes', 'aws', 'azure', 
-            'gcp', 'git', 'linux', 'react', 'angular', 'vue', 'node', 
-            'django', 'flask', 'tensorflow', 'pytorch', 'keras', 'scikit', 
-            'pandas', 'numpy', 'machine learning', 'deep learning', 
-            'nlp', 'data science', 'analytics', 'statistics'
-        ]
-        
+        result = nlp_result if nlp_result is not None else self.process(text)
+        skills = set(result['entities'].get('TECH', []))
+
         text_lower = text.lower()
-        for kw in tech_keywords:
-            if kw in text_lower:
-                skills.add(kw.title())
-        
-        return list(skills)
+        ambiguous = {"Go", "R"}
+        for term in TECH_TERMS:
+            haystack = text if term in ambiguous else text_lower
+            if contains_skill(haystack, term, case_sensitive=term in ambiguous):
+                skills.add(TECH_CANONICAL.get(term.lower(), term))
+
+        return sorted(skills)
 
 
 # ====================================================================
@@ -434,19 +400,19 @@ class NLPProcessor:
 # Instancia global del procesador NLP
 # Se inicializa una sola vez para evitar recargar el modelo
 nlp_processor = None
+_nlp_lock = threading.Lock()
+
 
 def get_nlp_processor() -> NLPProcessor:
     """
     Retorna la instancia global del procesador NLP.
-    
-    Implementa patrón Singleton para evitar:
-    - Carga repetida del modelo de spaCy
-    - Alto consumo de memoria
-    
-    Returns:
-        NLPProcessor: instancia única del procesador
+
+    Usa un lock para evitar que dos requests simultáneos carguen spaCy dos
+    veces en el primer acceso.
     """
     global nlp_processor
     if nlp_processor is None:
-        nlp_processor = NLPProcessor()
+        with _nlp_lock:
+            if nlp_processor is None:
+                nlp_processor = NLPProcessor()
     return nlp_processor

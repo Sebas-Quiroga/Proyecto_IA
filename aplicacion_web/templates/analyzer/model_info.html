@@ -18,6 +18,9 @@
         </div>
         <div class="chart-container">
             <div class="chart-title">Accuracy del Modelo durante el Entrenamiento</div>
+            {% if metrics.illustrative %}
+            <p style="font-size:0.8rem;color:#6B7280;margin-bottom:0.75rem;">Valores ilustrativos. Ejecuta el entrenamiento para mostrar las métricas reales.</p>
+            {% endif %}
             <div class="chart-wrapper">
                 <canvas id="accuracyChart"></canvas>
             </div>
@@ -80,24 +83,34 @@
 {% endblock %}
 
 {% block extra_js %}
+{{ category_labels|json_script:"category-labels" }}
+{{ category_values|json_script:"category-values" }}
+{{ metrics|json_script:"model-metrics" }}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+    const categoryLabels = JSON.parse(document.getElementById('category-labels').textContent);
+    const categoryValues = JSON.parse(document.getElementById('category-values').textContent);
+    const modelMetrics = JSON.parse(document.getElementById('model-metrics').textContent);
+    const accuracyTrain = modelMetrics.accuracy_train || [82.34, 87.12, 89.34];
+    const accuracyVal = modelMetrics.accuracy_val || [81.00, 86.00, 89.00];
+    const epochLabels = accuracyTrain.map((_, index) => `Época ${index + 1}`);
+
     // Gráfica 1: Accuracy por Época
     const accuracyCtx = document.getElementById('accuracyChart').getContext('2d');
     new Chart(accuracyCtx, {
         type: 'line',
         data: {
-            labels: ['Época 1', 'Época 2', 'Época 3'],
+            labels: epochLabels,
             datasets: [{
                 label: 'Entrenamiento',
-                data: [82.34, 87.12, 89.34],
+                data: accuracyTrain,
                 borderColor: '#1a1a1a',
                 backgroundColor: 'rgba(26,26,26,0.1)',
                 fill: true,
                 tension: 0.3
             }, {
                 label: 'Validación',
-                data: [81.00, 86.00, 89.00],
+                data: accuracyVal,
                 borderColor: '#4CAF50',
                 backgroundColor: 'rgba(76,175,80,0.1)',
                 fill: true,
@@ -108,7 +121,7 @@
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-                y: { beginAtZero: false, min: 75, max: 100, title: { display: true, text: 'Accuracy (%)' } },
+                y: { beginAtZero: true, min: 0, max: 100, title: { display: true, text: 'Accuracy (%)' } },
                 x: { title: { display: true, text: 'Épocas' } }
             }
         }
@@ -119,10 +132,10 @@
     new Chart(distributionCtx, {
         type: 'bar',
         data: {
-            labels: {{ category_labels|safe }},
+            labels: categoryLabels,
             datasets: [{
                 label: 'Currículums',
-                data: {{ category_values }},
+                data: categoryValues,
                 backgroundColor: [
                     '#1a1a1a', '#4a4a4a', '#6B7280', '#9CA3AF', '#D1D5DB',
                     '#3B82F6', '#60A5FA', '#93C5FD', '#BFDBFE', '#DBEAFE',

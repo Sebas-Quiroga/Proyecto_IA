@@ -21,6 +21,8 @@ Dependencias:
 =================================================================
 """
 
+import json                  # Persistencia del mapeo de etiquetas
+import os
 import pandas as pd          # Manipulación de datos tabulares
 import numpy as np           # Operaciones numéricas
 from typing import Tuple, Optional  # Type hints
@@ -58,7 +60,7 @@ class DatasetPreprocessor:
         self.text_cleaner = TextCleaner()
         self.label_encoder = None
 
-    def prepare_classification_data(self, df: pd.DataFrame, text_col: str = "Resume_str", label_col: str = "Category") -> Tuple[pd.DataFrame, pd.Series]:
+    def prepare_classification_data(self, df: pd.DataFrame, text_col: str = "Resume Text", label_col: str = "Category") -> Tuple[pd.Series, pd.Series]:
         """
         Prepara datos para clasificación.
         
@@ -85,7 +87,18 @@ class DatasetPreprocessor:
             - TextCleaner.clean: limpiar texto
         """
         print("Preparing classification data...")
-        
+
+        if text_col not in df.columns:
+            raise ValueError(
+                f"Columna de texto '{text_col}' no encontrada. "
+                f"Columnas disponibles: {list(df.columns)}"
+            )
+        if label_col not in df.columns:
+            raise ValueError(
+                f"Columna de etiquetas '{label_col}' no encontrada. "
+                f"Columnas disponibles: {list(df.columns)}"
+            )
+
         # Copiar para no modificar el original
         df = df.copy()
 
@@ -200,13 +213,36 @@ class DatasetPreprocessor:
     def get_label_mapping(self):
         """
         Obtiene los mapeos de etiquetas.
-        
+
         Returns:
             Tuple: (label_mapping, reverse_label_mapping)
-        
-        Uso:
-            label_map, reverse_map = preprocessor.get_label_mapping()
-            # label_map: {"Technology": 0, "HR": 1}
-            # reverse_map: {0: "Technology", 1: "HR"}
         """
         return self.label_mapping, self.reverse_label_mapping
+
+    def save_label_mapping(self, path: str) -> None:
+        """Guarda ``{categoría: índice}`` en JSON para usarlo en inferencia."""
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump(
+                self.label_mapping,
+                file,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+
+    @staticmethod
+    def load_label_mapping(path: str):
+        """Carga el mapeo de etiquetas desde JSON."""
+        with open(path, "r", encoding="utf-8") as file:
+            label_mapping = json.load(file)
+        label_mapping = {
+            str(category): int(index)
+            for category, index in label_mapping.items()
+        }
+        reverse_label_mapping = {
+            index: category for category, index in label_mapping.items()
+        }
+        return label_mapping, reverse_label_mapping

@@ -1,85 +1,78 @@
 """
-Predicción de categoría de CV usando modelo entrenado
-Si el modelo no existe, entrena automáticamente
+Predicción de categoría de CV usando el modelo entrenado.
+
+Uso:
+    python predict.py
 """
-import sys
-sys.path.insert(0, '.')
 
 import os
-from src.datasets.data_loader import DatasetLoader
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from src.datasets.preprocessor import DatasetPreprocessor
 from src.models.bert_classifier import BertClassifierModel
+from src.preprocessing.text_cleaner import TextCleaner
+from src.utils.config import LABEL_MAPPING_PATH, MODEL_PATH
 
-MODEL_PATH = 'models/bert_classifier_category.pt'
 
-def load_or_train():
-    # Cargar dataset de entrenamiento
-    loader = DatasetLoader()
-    df = loader.load_training_data()
-
-    # Preprocesar
-    preprocessor = DatasetPreprocessor()
-    texts, labels = preprocessor.prepare_classification_data(df, "Resume Text", "Category")
-    train_texts, val_texts, train_labels, val_labels = preprocessor.prepare_for_bert(texts, labels, val_size=0.2)
-    label_mapping, reverse_mapping = preprocessor.get_label_mapping()
-    num_classes = len(label_mapping)
-
-    # Verificar/crear carpeta models
-    models_dir = os.path.dirname(MODEL_PATH)
-    if models_dir and not os.path.exists(models_dir):
-        os.makedirs(models_dir)
-        print(f"📁 Carpeta '{models_dir}' creada.")
-
-    # Verificar si existe modelo guardado
-    if os.path.exists(MODEL_PATH):
-        print("✅ Cargando modelo guardado...")
-        classifier = BertClassifierModel(num_classes=num_classes, device='cpu')
-        classifier.load_model(MODEL_PATH)
-    else:
-        print("⚠️ No hay modelo guardado. Entrenando...")
-        classifier = BertClassifierModel(num_classes=num_classes, device='cpu')
-        classifier.train(
-            train_texts, train_labels,
-            val_texts, val_labels,
-            epochs=3,
-            batch_size=16,
-            save_path=MODEL_PATH
+def load_classifier_and_mapping():
+    if not MODEL_PATH.exists():
+        raise FileNotFoundError(
+            f"No existe el modelo en {MODEL_PATH}. "
+            "Ejecuta train_bert_classifier.py primero."
         )
-        print("✅ Modelo guardado!")
 
+    if LABEL_MAPPING_PATH.exists():
+        label_mapping, reverse_mapping = DatasetPreprocessor.load_label_mapping(
+            str(LABEL_MAPPING_PATH)
+        )
+    else:
+        # Compatibilidad con modelos antiguos que no guardaban el mapeo.
+        from src.datasets.data_loader import DatasetLoader
+
+        loader = DatasetLoader()
+        df = loader.load_training_data()
+        preprocessor = DatasetPreprocessor()
+        preprocessor.prepare_classification_data(
+            df, "Resume Text", "Category"
+        )
+        label_mapping, reverse_mapping = preprocessor.get_label_mapping()
+
+    classifier = BertClassifierModel(
+        num_classes=len(label_mapping), device="cpu"
+    )
+    classifier.load_model(str(MODEL_PATH))
     return classifier, reverse_mapping
 
-def predict(cv_text):
-    classifier, reverse_mapping = load_or_train()
 
-    # Limpiar texto
-    from src.preprocessing.text_cleaner import TextCleaner
-    cleaner = TextCleaner()
-    cleaned = cleaner.clean(cv_text)
-
-    # Predecir con probabilidades
+def predict(cv_text: str):
+    classifier, reverse_mapping = load_classifier_and_mapping()
+    cleaned = TextCleaner().clean(cv_text)
     probs = classifier.predict_proba([cleaned])[0]
 
-    # Mostrar resultados
-    results = []
-    for idx, prob in enumerate(probs):
-        cat = reverse_mapping.get(idx, f"Unknown_{idx}")
-        results.append({'category': cat, 'probability': prob * 100})
-
-    results.sort(key=lambda x: x['probability'], reverse=True)
+    results = [
+        {
+            "category": reverse_mapping.get(index, f"Unknown_{index}"),
+            "probability": float(prob * 100),
+        }
+        for index, prob in enumerate(probs)
+    ]
+    results.sort(key=lambda item: item["probability"], reverse=True)
 
     print("\n" + "=" * 60)
     print("PREDICCIÓN DE CATEGORÍA PROFESIONAL")
     print("=" * 60)
     print(f"\n🎯 Categoría: {results[0]['category']}")
     print(f"📊 Confianza: {results[0]['probability']:.2f}%\n")
-
     print("TOP 5 CATEGORÍAS:")
     print("-" * 40)
-    for i, r in enumerate(results[:5]):
-        print(f"{i+1}. {r['category']:35} {r['probability']:.2f}%")
+    for index, result in enumerate(results[:5], start=1):
+        print(f"{index}. {result['category']:35} {result['probability']:.2f}%")
 
-# Ejemplo de uso
+    return results
+
+
 if __name__ == "__main__":
     cv_example = """
     EXPERIENCE
@@ -94,5 +87,4 @@ if __name__ == "__main__":
     EDUCATION
     BS Computer Science
     """
-
     predict(cv_example)

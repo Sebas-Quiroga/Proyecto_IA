@@ -102,11 +102,31 @@ class DatasetLoader:
         if self.training_df is None:
             raise ValueError("No training data loaded. Call load_training_data() first.")
         
-        # Detectar nombres de columnas
-        text_col = 'Resume' if 'Resume' in self.training_df.columns else self.training_df.columns[0]
-        label_col = 'Category' if 'Category' in self.training_df.columns else self.training_df.columns[-1]
-        
+        # Detectar nombres de columnas (el dataset actual usa "Resume Text").
+        text_candidates = [
+            "Resume Text",
+            "Resume_str",
+            "Resume",
+            "resume_text",
+            "text",
+        ]
+        text_col = next(
+            (col for col in text_candidates if col in self.training_df.columns),
+            None,
+        )
+        if text_col is None:
+            raise ValueError(
+                "No se encontró una columna de texto. "
+                f"Columnas disponibles: {list(self.training_df.columns)}"
+            )
+
+        label_col = (
+            "Category"
+            if "Category" in self.training_df.columns
+            else self.training_df.columns[-1]
+        )
+
         texts = self.training_df[text_col].tolist()
         labels = self.training_df[label_col].tolist()
-        
+
         return texts, labels

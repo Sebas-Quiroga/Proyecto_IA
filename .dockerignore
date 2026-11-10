@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+db.sqlite3
+staticfiles
+pdfs_temporales
+red_neuronal/models/*.pt
+red_neuronal/models/*.pkl
+*.log

@@ -9,8 +9,10 @@ Interfaz web del sistema: permite subir currículums en PDF y obtener la categor
 | Ruta | Vista | Descripción |
 |------|-------|-------------|
 | `/` | `home` | Página principal con formulario de subida |
-| `/upload/` | `upload_cv` | Procesa el PDF subido y muestra la predicción |
+| `/upload/` | `upload_cv` | Procesa el PDF y redirige al inicio (PRG) |
+| `/analyze/` | `analyze_pdf` | Procesa el PDF y muestra el resultado en la misma página |
 | `/modelo/` | `model_info` | Información del modelo con gráficas interactivas |
+| `/health/` | `health` | Health check (estado del modelo) para Render |
 | `/admin/` | Django admin | Panel de administración |
 
 ---
@@ -20,8 +22,10 @@ Interfaz web del sistema: permite subir currículums en PDF y obtener la categor
 | Función | Función |
 |---------|---------|
 | `home()` | Página principal |
-| `upload_cv()` | Procesa el PDF desde la página principal |
-| `load_classifier()` | Carga el modelo BERT (con auto-descarga vía gdown si falta) |
+| `upload_cv()` | Procesa el PDF y redirige (patrón PRG) |
+| `analyze_pdf()` | Procesa el PDF y renderiza el resultado |
+| `health()` | Estado del modelo para el health check |
+| `load_classifier()` | Carga el modelo BERT (auto-descarga vía gdown; falla de forma segura si no está) |
 | `predict_category()` | Realiza la predicción con probabilidades por categoría |
 | `extract_text_from_pdf()` | Extrae texto del PDF (PyMuPDF + OCR Tesseract) |
 | `translate_to_english()` | Traduce el texto al inglés |

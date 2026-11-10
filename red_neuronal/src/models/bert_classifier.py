@@ -18,13 +18,20 @@ Arquitectura:
 # IMPORTS
 # ====================================================================
 
+import copy                     # Copia del mejor estado del modelo
+import json                     # Metadatos del checkpoint
+import os
+import random                   # Semilla para reproducibilidad
+
+import numpy as np              # Operaciones numéricas
 import torch                    # Framework de deep learning (PyTorch)
 import torch.nn as nn           # Módulos de redes neuronales
+from torch.optim import AdamW   # Optimizador Adam con weight decay
 from torch.utils.data import Dataset, DataLoader  # Datos y batches
 from transformers import BertTokenizer, BertModel, get_linear_schedule_with_warmup  # BERT
-from torch.optim import AdamW   # Optimizador Adam con weight decay
 from typing import Optional     # Type hints opcionales
-import numpy as np              # Operaciones numéricas
+
+from ..utils.config import RANDOM_SEED
 
 
 # ====================================================================
@@ -194,130 +201,143 @@ class BertClassifierModel:
     def __init__(self, num_classes: int, model_name: str = "bert-base-uncased", device: str = "cuda"):
         # Seleccionar dispositivo (GPU si está disponible, sino CPU)
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
-        
+        self.model_name = model_name
+        self.model_loaded = False
+
         # Crear modelo y mover al dispositivo
         self.model = BertClassifier(num_classes=num_classes, model_name=model_name).to(self.device)
-        
+
         # Cargar tokenizador de BERT
         self.tokenizer = BertTokenizer.from_pretrained(model_name)
-        
+
         # Guardar número de clases
         self.num_classes = num_classes
+        self.history = {"train_loss": [], "train_accuracy": [], "val_accuracy": []}
 
     def train(self, train_texts, train_labels, val_texts, val_labels,
               epochs: int = 3, batch_size: int = 16, learning_rate: float = 2e-5,
-              max_len: int = 512, save_path: Optional[str] = None):
+              max_len: int = 512, save_path: Optional[str] = None,
+              class_weights: Optional[torch.Tensor] = None,
+              patience: int = 2, num_workers: int = 0,
+              track_train_accuracy: bool = True):
         """
-        Entrena el modelo BERT.
-        
-        Pipeline de entrenamiento:
-        1. Crear datasets de entrenamiento y validación
-        2. Crear DataLoaders
-        3. Configurar optimizador (AdamW) y scheduler
-        4. Loop de epochs: entrenamiento + evaluación
-        5. Guardar modelo si se especifica
-        
+        Entrena el modelo BERT con early stopping y guardado del mejor estado.
+
         Args:
-            train_texts: textos de entrenamiento
-            train_labels: etiquetas de entrenamiento
-            val_texts: textos de validación
-            val_labels: etiquetas de validación
-            epochs: número de épocas
-            batch_size: tamaño de batch
-            learning_rate: tasa de aprendizaje
-            max_len: longitud máxima de tokens
-            save_path: ruta para guardar modelo (opcional)
-        
-        Dependencias:
-            - ResumeDataset: dataset personalizado
-            - DataLoader: batching de datos
-            - AdamW: optimizador
-            - get_linear_schedule_with_warmup: scheduler de learning rate
-            - nn.CrossEntropyLoss: función de pérdida
+            class_weights: pesos por clase para compensar desbalance.
+            patience: épocas sin mejora antes de detener el entrenamiento.
+            num_workers: workers del DataLoader (0 recomendado en Windows).
         """
-        # Crear datasets
+        self._set_seed(RANDOM_SEED)
+        self.history = {"train_loss": [], "train_accuracy": [], "val_accuracy": []}
+
         train_dataset = ResumeDataset(train_texts, train_labels, self.tokenizer, max_len)
         val_dataset = ResumeDataset(val_texts, val_labels, self.tokenizer, max_len)
 
-        # Crear DataLoaders (iteradores de batches)
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=torch.cuda.is_available(),
+        )
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=torch.cuda.is_available(),
+        )
 
-        # Optimizador AdamW (Adam con weight decay para regularización)
-        # learning_rate típico para BERT: 2e-5 (0.00002)
         optimizer = AdamW(self.model.parameters(), lr=learning_rate)
-        
-        # Scheduler: learning rate lineal con warmup
-        # Warmup: aumentar gradualmente al inicio
-        total_steps = len(train_loader) * epochs
-        scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=total_steps)
+        total_steps = max(1, len(train_loader) * epochs)
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=int(total_steps * 0.1),
+            num_training_steps=total_steps,
+        )
+        criterion = nn.CrossEntropyLoss(weight=class_weights)
 
-        # Loop de épocas
+        best_accuracy = 0.0
+        best_state = None
+        epochs_without_improvement = 0
+
         for epoch in range(epochs):
-            # Entrenar una época
-            self._train_epoch(epoch + 1, train_loader, optimizer, scheduler)
-            
-            # Evaluar en validación
+            train_loss = self._train_epoch(
+                epoch + 1, train_loader, optimizer, scheduler, criterion
+            )
             val_acc = self._evaluate(val_loader)
-            print(f"Epoch {epoch + 1} - Validation Accuracy: {val_acc:.4f}")
+            train_acc = (
+                self._evaluate(train_loader)
+                if track_train_accuracy
+                else float("nan")
+            )
+            self.history["train_loss"].append(train_loss)
+            self.history["train_accuracy"].append(train_acc)
+            self.history["val_accuracy"].append(val_acc)
+            print(
+                f"Epoch {epoch + 1} - Train Accuracy: {train_acc:.4f} "
+                f"- Validation Accuracy: {val_acc:.4f}"
+            )
 
-        # Guardar modelo al finalizar
+            if val_acc > best_accuracy:
+                best_accuracy = val_acc
+                best_state = copy.deepcopy(self.model.state_dict())
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
+                if epochs_without_improvement >= patience:
+                    print(f"Early stopping en época {epoch + 1}.")
+                    break
+
+        if best_state is not None:
+            self.model.load_state_dict(best_state)
+
         if save_path:
             self.save_model(save_path)
-            print(f"Model saved to {save_path}")
+            print(f"Model saved to {save_path} (best val accuracy: {best_accuracy:.4f})")
 
-    def _train_epoch(self, epoch, train_loader, optimizer, scheduler):
-        """
-        Entrena una sola época.
-        
-        Proceso:
-        1. Poner modelo en modo entrenamiento
-        2. Por cada batch:
-           - Forward pass
-           - Calcular pérdida
-           - Backward pass
-           - Clip gradientes
-           - Optimizador step
-           - Scheduler step
-        3. Imprimir pérdida promedio
-        """
+        return best_accuracy
+
+    @staticmethod
+    def _set_seed(seed: int) -> None:
+        """Fija las semillas para que el entrenamiento sea reproducible."""
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+
+    def _train_epoch(self, epoch, train_loader, optimizer, scheduler, criterion):
+        """Entrena una sola época."""
         self.model.train()
         total_loss = 0
-        
+
         for batch_idx, batch in enumerate(train_loader):
-            # Mover datos al dispositivo (GPU/CPU)
             input_ids = batch['input_ids'].to(self.device)
             attention_mask = batch['attention_mask'].to(self.device)
             labels = batch['labels'].to(self.device)
 
-            # Limpiar gradientes previos
             optimizer.zero_grad()
-            
-            # Forward pass
             outputs = self.model(input_ids, attention_mask)
-            
-            # Calcular pérdida (Cross Entropy para multi-class)
-            loss = nn.CrossEntropyLoss()(outputs, labels)
-
-            # Backward pass (calcular gradientes)
+            loss = criterion(outputs, labels)
             loss.backward()
-            
-            # Clip de gradientes (evitar explosiones de gradiente)
+
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-            
-            # Actualizar pesos
             optimizer.step()
-            
-            # Actualizar learning rate (scheduler)
             scheduler.step()
 
             total_loss += loss.item()
-            
-            # Imprimir cada 10 batches
-            if (batch_idx + 1) % 10 == 0:
-                print(f"  Batch {batch_idx + 1}/{len(train_loader)}, Loss: {loss.item()::.4f}")
 
-        print(f"Epoch {epoch} - Avg Loss: {total_loss / len(train_loader):.4f}")
+            if (batch_idx + 1) % 10 == 0:
+                print(
+                    f"  Batch {batch_idx + 1}/{len(train_loader)}, "
+                    f"Loss: {loss.item():.4f}"
+                )
+
+        average_loss = total_loss / max(1, len(train_loader))
+        print(f"Epoch {epoch} - Avg Loss: {average_loss:.4f}")
+        return average_loss
 
     def _evaluate(self, val_loader):
         """
@@ -430,20 +450,57 @@ class BertClassifierModel:
             - torch.save: guardar diccionario con state_dict
         """
         torch.save({
-            'model_state_dict': self.model.state_dict(),  # Pesos de la red
-            'num_classes': self.num_classes               # Número de clases
+            'model_state_dict': self.model.state_dict(),
+            'num_classes': self.num_classes,
+            'model_name': self.model_name,
+            'max_len': 512,
         }, path)
 
     def load_model(self, path: str):
         """
-        Carga el modelo desde un archivo .pt
-        
-        Args:
-            path: ruta del archivo
-        
-        Dependencias:
-            - torch.load: cargar diccionario con state_dict
+        Carga el modelo desde un archivo .pt.
+
+        Acepta tanto el formato nuevo (diccionario con metadatos) como un
+        ``state_dict`` plano guardado por versiones anteriores.
         """
-        checkpoint = torch.load(path, map_location=self.device)
-        self.model.load_state_dict(checkpoint['model_state_dict'])
-        self.num_classes = checkpoint['num_classes']
+        try:
+            checkpoint = torch.load(
+                path, map_location=self.device, weights_only=True
+            )
+        except TypeError:
+            # Versiones antiguas de PyTorch no aceptan weights_only.
+            checkpoint = torch.load(path, map_location=self.device)
+
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            state_dict = checkpoint['model_state_dict']
+            self.num_classes = int(checkpoint.get('num_classes', self.num_classes))
+            self.model_name = checkpoint.get('model_name', self.model_name)
+        else:
+            state_dict = checkpoint
+
+        self.model.load_state_dict(state_dict)
+        self.model.eval()
+        self.model_loaded = True
+        return checkpoint
+
+    @staticmethod
+    def save_label_mapping(label_mapping: dict, path: str) -> None:
+        """Guarda el mapeo categoría -> índice junto al modelo."""
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as file:
+            json.dump(label_mapping, file, ensure_ascii=False, indent=2, sort_keys=True)
+
+    @staticmethod
+    def load_label_mapping(path: str):
+        """Carga ``(label_mapping, reverse_mapping)`` desde JSON."""
+        with open(path, 'r', encoding='utf-8') as file:
+            raw = json.load(file)
+        label_mapping = {
+            str(category): int(index) for category, index in raw.items()
+        }
+        reverse_mapping = {
+            index: category for category, index in label_mapping.items()
+        }
+        return label_mapping, reverse_mapping

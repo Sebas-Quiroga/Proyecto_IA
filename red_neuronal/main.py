@@ -12,7 +12,7 @@ from src.datasets.data_loader import DatasetLoader
 from src.datasets.preprocessor import DatasetPreprocessor
 from src.models.bert_classifier import BertClassifierModel
 from src.preprocessing.text_cleaner import TextCleaner
-from src.utils.config import MODEL_DIR
+from src.utils.config import LABEL_MAPPING_PATH, MODEL_PATH
 
 class ResumeAnalysisSystem:
     def __init__(self, use_gpu: bool = True):
@@ -26,11 +26,7 @@ class ResumeAnalysisSystem:
 
     def initialize(self):
         print("\n=== Loading and Preparing Data ===")
-        loader = DatasetLoader()
-        df = loader.load_training_data()
-
         self.preprocessor = DatasetPreprocessor()
-
         print("\n=== System Ready ===")
 
     def train_classifier(self, epochs: int = 3, batch_size: int = 16):
@@ -38,24 +34,32 @@ class ResumeAnalysisSystem:
         loader = DatasetLoader()
         df = loader.load_training_data()
 
-        text_col = "Resume" if "Resume" in df.columns else df.columns[0]
-        label_col = "Category" if "Category" in df.columns else df.columns[-1]
+        texts, labels = self.preprocessor.prepare_classification_data(
+            df, "Resume Text", "Category"
+        )
+        train_texts, val_texts, train_labels, val_labels = (
+            self.preprocessor.prepare_for_bert(texts, labels)
+        )
 
-        texts, labels = self.preprocessor.prepare_classification_data(df, text_col, label_col)
-        train_texts, val_texts, train_labels, val_labels = self.preprocessor.prepare_for_bert(texts, labels)
-
-        self.label_mapping, self.reverse_mapping = self.preprocessor.get_label_mapping()
+        self.label_mapping, self.reverse_mapping = (
+            self.preprocessor.get_label_mapping()
+        )
         num_classes = len(self.label_mapping)
 
         print(f"\nTraining with {num_classes} classes...")
-        self.classifier = BertClassifierModel(num_classes=num_classes, device=self.device)
+        self.classifier = BertClassifierModel(
+            num_classes=num_classes, device=self.device
+        )
         self.classifier.train(
-            train_texts, train_labels,
-            val_texts, val_labels,
+            train_texts,
+            train_labels,
+            val_texts,
+            val_labels,
             epochs=epochs,
             batch_size=batch_size,
-            save_path=os.path.join(MODEL_DIR, "bert_classifier_category.pt")
+            save_path=str(MODEL_PATH),
         )
+        self.preprocessor.save_label_mapping(str(LABEL_MAPPING_PATH))
 
     def analyze_resume(self, resume_text: str):
         print("\n=== Analyzing Resume ===")

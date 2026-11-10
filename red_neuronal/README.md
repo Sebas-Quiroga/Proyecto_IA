@@ -29,7 +29,7 @@ red_neuronal/
 │   └── utils/                  # Configuración
 │       └── config.py           # Rutas y parámetros
 │
-├── models/                     # Modelos entrenados
+├── models/                     # .pt + label_mapping.json + metrics.json
 └── datos_entrenamiento/        # Dataset (training_data.csv)
 ```
 
@@ -48,9 +48,19 @@ pip install -r requirements.txt
 python train_bert_classifier.py
 ```
 
+El entrenamiento genera:
+- `models/bert_classifier_category.pt` — pesos y metadatos
+- `models/label_mapping.json` — mapeo `categoría → índice`
+- `models/metrics.json` — accuracy, F1, reporte y curvas por época
+
 ### 3. Hacer Predicciones
 ```bash
 python predict.py
+```
+
+### 4. Prueba rápida del pipeline (opcional)
+```bash
+python scripts/smoke_train.py
 ```
 
 ---
@@ -78,6 +88,7 @@ El modelo BERT entrenado se encuentra disponible en Google Drive:
 1. Acceder al enlace de Google Drive
 2. Descargar el archivo `bert_classifier_category.pt`
 3. Colocar el archivo en la carpeta `red_neuronal/models/`
+4. Colocar `label_mapping.json` en la misma carpeta (se genera al entrenar)
 
 **Modelo entrenado:**
 - Archivo: `bert_classifier_category.pt`

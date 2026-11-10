@@ -8,7 +8,7 @@ Pasos para instalar las dependencias e inicializar el sistema de clasificación 
 
 | Requisito | Versión | Notas |
 |-----------|---------|-------|
-| Python | 3.11 (recomendado) | `runtime.txt` define 3.11 para despliegue |
+| Python | 3.11 (recomendado) | El `Dockerfile` usa `python:3.11-slim` |
 | pip | Última | Gestor de paquetes de Python |
 | Tesseract OCR | 5.x | Necesario solo si se procesan PDFs escaneados |
 | Git | Opcional | Para clonar el repositorio |
@@ -24,11 +24,14 @@ Proyecto_IA_BERT/
 ├── aplicacion_web/            # Aplicación web (vistas, URLs, templates)
 ├── red_neuronal/              # Modelo BERT y NLP
 │   ├── src/                   # Código fuente del modelo
-│   ├── models/                # Artefactos del modelo (generado en runtime)
-│   └── requirements.txt
+│   ├── models/                # .pt + label_mapping.json + metrics.json
+│   └── requirements.txt       # Compatibilidad (se usa requirements.txt raíz)
 ├── datos_entrenamiento/       # Dataset (training_data.csv)
 ├── pdfs_temporales/           # PDFs subidos por usuarios (se eliminan solos)
-├── build.sh / render.yaml     # Despliegue en Render
+├── tests/                     # Pruebas con pytest
+├── Dockerfile / docker-entrypoint.sh / render.yaml
+├── build.sh                   # Build alternativo sin Docker
+├── .env.example               # Variables de entorno documentadas
 └── docs/                      # Documentación del proyecto
 ```
 
@@ -51,15 +54,34 @@ source venv/bin/activate
 ### 2.2 Dependencias del proyecto
 
 ```bash
-# 1. Framework web
-pip install "Django>=4.0"
-
-# 2. Red neuronal (torch, transformers, spacy, OCR, etc.)
-cd red_neuronal
+# Dependencias de runtime (Django, torch, transformers, spaCy, OCR, etc.)
 pip install -r requirements.txt
+
+# Dependencias de desarrollo (pytest, ruff)
+pip install -r requirements-dev.txt
 ```
 
-Las dependencias principales son: `torch`, `transformers`, `pandas`, `scikit-learn`, `spacy`, `pytesseract`, `deep-translator`, `langdetect`, `pymupdf`, `Pillow`. Ver [02-arquitectura-tecnologias.md](02-arquitectura-tecnologias.md) para el rol de cada una.
+Las dependencias principales son: `Django`, `torch`, `transformers`, `pandas`, `scikit-learn`, `spacy`, `pytesseract`, `deep-translator`, `langdetect`, `pymupdf`, `Pillow`, `gdown`, `gunicorn`, `whitenoise`. Ver [02-arquitectura-tecnologias.md](02-arquitectura-tecnologias.md) para el rol de cada una.
+
+### 2.2.1 Variables de entorno
+
+Copia `.env.example` a `.env` y ajusta los valores. Las más importantes:
+
+| Variable | Uso |
+|----------|-----|
+| `DJANGO_DEBUG` | `True` en local, `False` en producción |
+| `SECRET_KEY` | Obligatoria cuando `DJANGO_DEBUG=False` |
+| `ALLOWED_HOSTS` | Hosts permitidos, separados por coma |
+| `MODEL_PATH` | Ruta del `.pt` |
+| `LABEL_MAPPING_PATH` | Ruta de `label_mapping.json` |
+| `METRICS_PATH` | Ruta de `metrics.json` |
+| `MAX_PDF_SIZE` / `MAX_PDF_PAGES` | Límites de subida y OCR |
+| `OCR_LANG` | Idiomas de Tesseract (ej. `eng+spa`) |
+| `TESSERACT_CMD` | Ruta al ejecutable de Tesseract |
+| `MODEL_GOOGLE_DRIVE_ID` | ID de descarga del modelo |
+| `MODEL_SHA256` | Checksum opcional del modelo |
+
+Django **no** lee el `.env` automáticamente: expórtalo en la shell o configúralo en el panel de Render.
 
 ### 2.3 Descargar modelo de spaCy
 
@@ -98,15 +120,20 @@ INSTALLED_APPS = [..., 'aplicacion_web']
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'pdfs_temporales'
 
+# Rutas del modelo configurables por entorno
+MODEL_PATH = BASE_DIR / 'red_neuronal' / 'models' / 'bert_classifier_category.pt'
+LABEL_MAPPING_PATH = MODEL_PATH.parent / 'label_mapping.json'
+METRICS_PATH = MODEL_PATH.parent / 'metrics.json'
+
 # Ruta del núcleo de IA al PYTHONPATH
-sys.path.insert(0, os.path.join(BASE_DIR, 'red_neuronal'))
+sys.path.insert(0, str(BASE_DIR / 'red_neuronal'))
 ```
 
 ### 3.2 Crear carpetas generadas en runtime
 
 ```bash
 mkdir pdfs_temporales          # PDFs temporales de usuarios
-mkdir red_neuronal/models      # Artefacto del modelo entrenado
+mkdir red_neuronal/models      # Modelo y artefactos
 ```
 
 ---
@@ -133,8 +160,11 @@ La aplicación queda disponible en: <http://127.0.0.1:8000/>
 
 Al iniciar, la aplicación verifica si existe `red_neuronal/models/bert_classifier_category.pt`:
 
-1. **Si existe** → se carga directamente.
+1. **Si existe y es válido** → se carga directamente.
 2. **Si NO existe** → se descarga automáticamente desde Google Drive usando `gdown` (implementado en `aplicacion_web/views.py`).
+3. **Si la descarga falla** → la vista devuelve un error controlado. La app **no** predice con pesos aleatorios.
+
+La validación comprueba tamaño mínimo (`MODEL_MIN_SIZE`) y, si está definido, `MODEL_SHA256`. La descarga usa un archivo `.part` y reemplazo atómico.
 
 ### Descarga manual (alternativa)
 
@@ -142,12 +172,20 @@ Al iniciar, la aplicación verifica si existe `red_neuronal/models/bert_classifi
 
 Guardar como: `red_neuronal/models/bert_classifier_category.pt`
 
+> El modelo debe ir acompañado de `label_mapping.json`. Sin él, la app intenta reconstruir el mapeo desde el CSV y registra una advertencia; el orden de clases podría no coincidir con el entrenamiento.
+
 ### Entrenamiento local (opcional)
 
 ```bash
 cd red_neuronal
 python train_bert_classifier.py
 ```
+
+Genera tres artefactos:
+
+- `models/bert_classifier_category.pt` — pesos y metadatos
+- `models/label_mapping.json` — mapeo `categoría → índice`
+- `models/metrics.json` — accuracy, F1, reporte, matriz de confusión y curvas por época
 
 Requiere el dataset en `datos_entrenamiento/1_resume_classification/training_data.csv`. Ver [05-datos-entrenamiento.md](05-datos-entrenamiento.md).
 
@@ -175,16 +213,25 @@ sys.path.insert(0, os.path.join(BASE_DIR, 'red_neuronal'))
 
 ### `TesseractNotFoundError`
 
-Configurar la ruta de Tesseract en `views.py`:
+Configurar la ruta con la variable de entorno `TESSERACT_CMD` (no editar `views.py`):
 
-```python
-import pytesseract
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+```powershell
+$env:TESSERACT_CMD="C:\Program Files\Tesseract-OCR\tesseract.exe"
 ```
+
+En Linux/Docker el valor por defecto es `/usr/bin/tesseract`.
 
 ### `No such file or directory: training_data.csv`
 
 Verificar que el dataset exista en `datos_entrenamiento/1_resume_classification/training_data.csv`.
+
+### «El modelo BERT no está disponible»
+
+Revisar `MODEL_PATH`, `MODEL_MIN_SIZE` y la descarga desde Google Drive. Este error es intencional: evita devolver predicciones aleatorias cuando el modelo no cargó.
+
+### Predicciones incoherentes
+
+Verificar que `label_mapping.json` sea el que se generó junto con el `.pt`. Si se reconstruye desde el CSV, el orden de las clases puede cambiar.
 
 ---
 
@@ -192,9 +239,12 @@ Verificar que el dataset exista en `datos_entrenamiento/1_resume_classification/
 
 ```bash
 venv\Scripts\activate                 # Activar entorno (Windows)
-pip install "Django>=4.0"
-cd red_neuronal && pip install -r requirements.txt
+pip install -r requirements.txt
 python -m spacy download en_core_web_sm
-python manage.py makemigrations && python manage.py migrate
+python manage.py migrate
 python manage.py runserver
+
+# Tests
+pip install -r requirements-dev.txt
+python -m pytest -q
 ```

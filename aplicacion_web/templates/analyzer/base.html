@@ -24,7 +24,8 @@
         .hero { text-align: center; margin-bottom: 3rem; }
         .hero h1 { font-size: 2rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--black); }
         .hero p { color: var(--gray); font-size: 1rem; max-width: 500px; margin: 0 auto; }
-        .upload-card { background: var(--white); border: 1px solid var(--lighter-gray); border-radius: 12px; padding: 2rem; margin-bottom: 2rem; }
+        .upload-card { background: var(--white); border: 1px solid var(--lighter-gray); border-radius: 12px; padding: 2rem; margin-bottom: 2rem; transition: border-color 0.2s, background 0.2s; }
+        .upload-card.dragging { border-color: var(--black); background: var(--off-white); }
         .upload-section { position: relative; }
         .file-input { position: absolute; width: 0; height: 0; opacity: 0; }
         .file-label { display: block; border: 1px dashed var(--light-gray); border-radius: 8px; padding: 2.5rem 2rem; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--off-white); }
@@ -89,28 +90,73 @@
         <div class="navbar-content">
             <div class="logo"><div class="logo-icon">A</div><span>CV Analyzer</span></div>
             <ul class="nav-links">
-                <li><a href="/">Inicio</a></li>
+                <li><a href="{% url 'home' %}">Inicio</a></li>
                 <li><a href="{% url 'model_info' %}">Modelo</a></li>
             </ul>
         </div>
     </nav>
     <div class="container">
         <div class="nav-tabs">
-            <a href="/" class="nav-tab {% if request.path == '/' %}active{% endif %}">Inicio</a>
+            <a href="{% url 'home' %}" class="nav-tab {% if request.path == '/' %}active{% endif %}">Inicio</a>
             <a href="{% url 'model_info' %}" class="nav-tab {% if request.path == '/modelo/' %}active{% endif %}">Información del Modelo</a>
         </div>
         {% block content %}{% endblock %}
     </div>
     <footer><p>CV Analyzer — Powered by BERT Neural Network</p></footer>
     <script>
-        const fileInput = document.getElementById('cv-file');
-        const fileNameDisplay = document.getElementById('file-name');
-        const submitBtn = document.getElementById('submit-btn');
-        fileInput.addEventListener('change', function(e) {
-            const fileName = e.target.files[0]?.name || '';
-            if (fileName) { fileNameDisplay.textContent = fileName; fileNameDisplay.classList.add('has-file'); submitBtn.disabled = false; }
-            else { fileNameDisplay.textContent = ''; fileNameDisplay.classList.remove('has-file'); submitBtn.disabled = true; }
-        });
+        (function () {
+            const fileInput = document.getElementById('cv-file');
+            const fileNameDisplay = document.getElementById('file-name');
+            const submitBtn = document.getElementById('submit-btn');
+
+            if (fileInput && fileNameDisplay && submitBtn) {
+                const updateFile = function (file) {
+                    if (file) {
+                        fileNameDisplay.textContent = file.name;
+                        fileNameDisplay.classList.add('has-file');
+                        submitBtn.disabled = false;
+                    } else {
+                        fileNameDisplay.textContent = '';
+                        fileNameDisplay.classList.remove('has-file');
+                        submitBtn.disabled = true;
+                    }
+                };
+
+                fileInput.addEventListener('change', function (event) {
+                    updateFile(event.target.files[0]);
+                });
+
+                const dropZone = fileInput.closest('.upload-card');
+                if (dropZone) {
+                    ['dragenter', 'dragover'].forEach(function (name) {
+                        dropZone.addEventListener(name, function (event) {
+                            event.preventDefault();
+                            dropZone.classList.add('dragging');
+                        });
+                    });
+                    ['dragleave', 'drop'].forEach(function (name) {
+                        dropZone.addEventListener(name, function (event) {
+                            event.preventDefault();
+                            dropZone.classList.remove('dragging');
+                        });
+                    });
+                    dropZone.addEventListener('drop', function (event) {
+                        if (event.dataTransfer.files.length) {
+                            fileInput.files = event.dataTransfer.files;
+                            updateFile(fileInput.files[0]);
+                        }
+                    });
+                }
+
+                const form = fileInput.closest('form');
+                if (form) {
+                    form.addEventListener('submit', function () {
+                        submitBtn.disabled = true;
+                        submitBtn.textContent = 'Analizando...';
+                    });
+                }
+            }
+        })();
     </script>
     {% block extra_js %}{% endblock %}
 </body>

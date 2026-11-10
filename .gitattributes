@@ -1,0 +1,12 @@
+# Scripts de shell y Docker siempre con LF (evita fallos en Linux).
+*.sh text eol=lf
+Dockerfile text eol=lf
+docker-entrypoint.sh text eol=lf
+build.sh text eol=lf
+
+# Python y documentación con LF también.
+*.py text eol=lf
+*.md text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf

@@ -1,17 +1,36 @@
 services:
   - type: web
     name: cv-bert-analyzer
-    env: python3
-    buildCommand: chmod +x build.sh && ./build.sh
-    startCommand: gunicorn proyecto_cv.wsgi:application --bind 0.0.0.0:${PORT:-10000}
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /health/
     envVars:
-      - key: DJANGO_SETTINGS_MODULE
-        value: proyecto_cv.settings
-      - key: DISABLE_CACHE
-        value: "true"
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: SECRET_KEY
+        generateValue: true
       - key: PYTHONUNBUFFERED
-        value: "true"
+        value: "True"
+      - key: MODEL_PATH
+        value: /app/data/models/bert_classifier_category.pt
+      - key: LABEL_MAPPING_PATH
+        value: /app/data/models/label_mapping.json
+      - key: METRICS_PATH
+        value: /app/data/models/metrics.json
+      - key: MODEL_GOOGLE_DRIVE_ID
+        value: "1dXUht0jrVIA8IqWTLEHPHXd-8kgRc1Um"
+      - key: OCR_LANG
+        value: eng+spa
+      - key: HF_HOME
+        value: /app/data/hf_cache
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: WEB_THREADS
+        value: "2"
+      - key: WEB_TIMEOUT
+        value: "180"
     disk:
-      mountedPath: /opt/render/project/src
-      size: 512
-    
+      name: cv-bert-data
+      mountPath: /app/data
+      sizeGB: 1

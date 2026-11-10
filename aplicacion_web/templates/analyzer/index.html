@@ -1,4 +1,5 @@
 {% extends 'analyzer/base.html' %}
+{% load l10n %}
 {% block title %}CV Analyzer{% endblock %}
 {% block content %}
     <div class="hero">
@@ -15,7 +16,7 @@
                     <div class="label-content">
                         <span class="upload-icon">+</span>
                         <span class="upload-text">Seleccionar archivo PDF</span>
-                        <span class="upload-hint">Arrastra o haz clic</span>
+                        <span class="upload-hint">Arrastra o haz clic · PDF de hasta 5 MB</span>
                     </div>
                 </label>
                 <div id="file-name" class="file-name-display"></div>
@@ -65,7 +66,7 @@
                 {% for pred in result.top_3_predictions %}
                 <div class="prob-bar-container">
                     <div class="prob-label">{% if forloop.first %}🥇 {% elif forloop.second %}🥈 {% else %}🥉 {% endif %}{{ pred.category }}</div>
-                    <div class="prob-bar-wrapper"><div class="prob-bar" style="width: {{ pred.probability }}%"></div></div>
+                    <div class="prob-bar-wrapper"><div class="prob-bar" style="width: {{ pred.probability|unlocalize }}%"></div></div>
                     <div class="prob-value">{{ pred.probability|floatformat:1 }}%</div>
                 </div>
                 {% endfor %}

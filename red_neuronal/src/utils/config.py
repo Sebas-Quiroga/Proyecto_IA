@@ -1,123 +1,89 @@
 """
-=================================================================
-CONFIGURACIÓN DEL PROYECTO
-Universidad - Variables Globales y Rutas
+Configuración central del proyecto.
 
-Este módulo contiene todas las constantes y configuraciones
-del proyecto:
-
-1. Rutas de directorios
-2. Rutas de datasets
-3. Parámetros del modelo BERT
-4. Configuración de entrenamiento
-
-Estas variables se importan desde otros módulos para
-mantener configuración centralizada.
-
-=================================================================
+Todas las rutas se calculan desde la ubicación de este archivo para que el
+proyecto funcione igual desde la raíz, desde ``red_neuronal`` o desde Django.
 """
 
-import os  # Operaciones del sistema de archivos
+import os
+from pathlib import Path
 
 
 # ====================================================================
 # RUTAS BASE
 # ====================================================================
 
-# BASE_DIR: Ruta al directorio raíz del proyecto (red_neuronal)
-# Obtiene la ruta absoluta del archivo actual y sube dos niveles
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# .../red_neuronal/src/utils/config.py -> .../red_neuronal/src
+SRC_DIR = Path(__file__).resolve().parent.parent
+# .../red_neuronal
+RED_NEURONAL_DIR = SRC_DIR.parent
+# raíz del repositorio
+PROJECT_DIR = RED_NEURONAL_DIR.parent
 
-# DATASET_DIR: Ruta a la carpeta de datasets
-# Sube desde red_neuronal/src/utils -> red_neuronal -> proyecto -> datos_entrenamiento
-DATASET_DIR = os.path.join(BASE_DIR, "..", "..", "datos_entrenamiento")
+DATASET_DIR = PROJECT_DIR / "datos_entrenamiento"
+MODEL_DIR = RED_NEURONAL_DIR / "models"
+MODEL_PATH = Path(
+    os.environ.get("MODEL_PATH", MODEL_DIR / "bert_classifier_category.pt")
+)
+LABEL_MAPPING_PATH = Path(
+    os.environ.get("LABEL_MAPPING_PATH", MODEL_DIR / "label_mapping.json")
+)
+METRICS_PATH = Path(os.environ.get("METRICS_PATH", MODEL_DIR / "metrics.json"))
+
 
 # ====================================================================
-# RUTAS DE DATASETS
+# DATASETS
 # ====================================================================
 
-# Diccionario con rutas a todos los datasets
-# Cada ключ (key) es un identificador, cada value es la ruta al CSV
 DATASET_PATHS = {
-    # Dataset 1: Clasificación de currículums
-    "1_resume_classification_training": os.path.join(DATASET_DIR, "1_resume_classification", "training_data.csv"),
-    "1_resume_classification_jobs": os.path.join(DATASET_DIR, "1_resume_classification", "job_roles.csv"),
-    "1_resume_classification_skills": os.path.join(DATASET_DIR, "1_resume_classification", "skills_list.csv"),
-    
-    # Dataset 2: PDFs de currículums reales (ya eliminado)
-    "2_real_pdf_resumes": os.path.join(DATASET_DIR, "2_real_pdf_resumes", "Resume", "Resume.csv"),
-    
-    # Dataset 3: Matching job-currículum
-    "3_job_matching": os.path.join(DATASET_DIR, "3_job_resume_matching", "job_resume_fit.csv"),
-    
-    # Dataset 5: Taxonomía de skills
-    "5_skills": os.path.join(DATASET_DIR, "5_skills_taxonomy", "skills_en.csv"),
-    "5_occupations": os.path.join(DATASET_DIR, "5_skills_taxonomy", "occupations_en.csv"),
-    "5_skill_relations": os.path.join(DATASET_DIR, "5_skills_taxonomy", "occupationSkillRelations.csv"),
+    "1_resume_classification_training": str(
+        DATASET_DIR / "1_resume_classification" / "training_data.csv"
+    ),
+    "1_resume_classification_jobs": str(
+        DATASET_DIR / "1_resume_classification" / "job_roles.csv"
+    ),
+    "1_resume_classification_skills": str(
+        DATASET_DIR / "1_resume_classification" / "skills_list.csv"
+    ),
+    "2_real_pdf_resumes": str(
+        DATASET_DIR / "2_real_pdf_resumes" / "Resume" / "Resume.csv"
+    ),
+    "3_job_matching": str(
+        DATASET_DIR / "3_job_resume_matching" / "job_resume_fit.csv"
+    ),
+    "5_skills": str(DATASET_DIR / "5_skills_taxonomy" / "skills_en.csv"),
+    "5_occupations": str(
+        DATASET_DIR / "5_skills_taxonomy" / "occupations_en.csv"
+    ),
+    "5_skill_relations": str(
+        DATASET_DIR / "5_skills_taxonomy" / "occupationSkillRelations.csv"
+    ),
 }
-
-
-# ====================================================================
-# RUTAS DE MODELOS
-# ====================================================================
-
-# Directorio donde se guarda el modelo entrenado
-MODEL_DIR = os.path.join(BASE_DIR, "models")
 
 
 # ====================================================================
 # PARÁMETROS DE ENTRENAMIENTO
 # ====================================================================
 
-# Longitud máxima de secuencia para BERT (512 tokens = máximo de BERT)
 MAX_LEN = 512
-
-# Tamaño de batch (número de samples por iteración)
 BATCH_SIZE = 16
-
-# Número de épocas (cuántas veces pasa por todo el dataset)
 EPOCHS = 3
-
-# Learning rate (tasa de aprendizaje - muy pequeño para BERT)
-LEARNING_RATE = 2e-5  # 0.00002
-
-# Número de workers para DataLoader (procesamiento paralelo)
-NUM_WORKERS = 4
-
-
-# ====================================================================
-# MODELOS PRE-ENTRENADOS
-# ====================================================================
-
-# Modelo BERT a usar: bert-base-uncased
-# - 12 capas transformer
-# - 768 hidden dimensions
-# - 12 attention heads
-# - 110M parámetros
-# - Case insensitive (no diferencia mayúsculas/minúsculas)
-BERT_MODEL = "bert-base-uncased"
-
-# Modelo de sentence-transformers para embeddings
-# all-MiniLM-L6-v2: pequeño y rápido (22M parámetros)
-# Útil para búsqueda de similitud semántica
-SENTENCE_TRANSFORMER_MODEL = "all-MiniLM-L6-v2"
-
-
-# ====================================================================
-# DISPOSITIVO
-# ====================================================================
-
-# Seleccionar dispositivo automáticamente
-# Si se ejecuta como script principal -> CPU
-# Si se importa como módulo -> GPU si está disponible, sino CPU
-DEVICE = "cuda" if __name__ != "__main__" else "cpu"
-
-
-# ====================================================================
-# SEMILLA ALEATORIA
-# ====================================================================
-
-# Semilla para reproducibilidad de resultados
+LEARNING_RATE = 2e-5
+NUM_WORKERS = 0  # 0 es más seguro en Windows y en contenedores pequeños
 RANDOM_SEED = 42
+EARLY_STOPPING_PATIENCE = 2
 
+# Modelo pre-entrenado
+BERT_MODEL = os.environ.get("BERT_MODEL", "bert-base-uncased")
 
+# Valores por defecto para mostrar en la web sin cargar el modelo completo.
+BERT_CONFIG = {
+    "total_params": 110_000_000,
+    "num_layers": 12,
+    "hidden_size": 768,
+    "num_heads": 12,
+    "vocab_size": 30_522,
+}
+
+# Dispositivo solicitado; BertClassifierModel hace el fallback a CPU.
+DEVICE = "cuda"

@@ -1,0 +1,39 @@
+# Entornos y secretos
+.venv/
+venv/
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Django
+db.sqlite3
+db.sqlite3-journal
+staticfiles/
+media/
+pdfs_temporales/
+
+# Modelos y artefactos
+red_neuronal/models/*.pt
+red_neuronal/models/*.pkl
+red_neuronal/models/*.json
+red_neuronal/src/models/*.pt
+*.pt
+*.pkl
+
+# Datos temporales
+*.log
+*.tmp
+*.part
+
+# Sistema operativo / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

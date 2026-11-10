@@ -1,23 +1,21 @@
 """
-=================================================================
-URLs DE LA APLICACIÓN DJANGO
-Universidad - Rutas del Servidor Web
+Rutas de la aplicación web.
 
-Este archivo define las URLs disponibles en la aplicación:
-- / : Página principal (home) - Subir CV y predecir categoría
-- /modelo/ : Información del modelo
-
-Cada URL está asociada a una vista en views.py
-
-=================================================================
+- /            Inicio: subir CV y ver el resultado.
+- /upload/     Procesa el CV y redirige al inicio (PRG).
+- /analyze/    Variante que renderiza el resultado en la misma página.
+- /modelo/     Información del modelo y métricas.
+- /health/     Health check para Render.
 """
 
-from django.urls import path  # Función de Django para definir rutas
-from . import views          # Importar todas las vistas
+from django.urls import path
 
-# Lista de rutas disponibles
+from . import views
+
 urlpatterns = [
-    path('', views.home, name='home'),           # Página principal
-    path('upload/', views.upload_cv, name='upload_cv'),  # Subir CV
-    path('modelo/', views.model_info, name='model_info'),  # Info del modelo
+    path("", views.home, name="home"),
+    path("upload/", views.upload_cv, name="upload_cv"),
+    path("analyze/", views.analyze_pdf, name="analyze_pdf"),
+    path("modelo/", views.model_info, name="model_info"),
+    path("health/", views.health, name="health"),
 ]

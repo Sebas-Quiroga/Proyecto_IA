@@ -26,6 +26,21 @@ import re                      # Expresiones regulares
 from typing import List, Dict, Set  # Type hints
 
 
+def contains_skill(text: str, term: str, case_sensitive: bool = False) -> bool:
+    """
+    Comprueba si ``term`` aparece como palabra/frase completa.
+
+    Evita falsos positivos como ``go`` dentro de ``good``, ``ai`` dentro de
+    ``email`` o ``java`` dentro de ``javascript``.
+    """
+    if not term:
+        return False
+    haystack = text if case_sensitive else text.lower()
+    needle = term if case_sensitive else term.lower()
+    pattern = r"(?<![A-Za-z0-9])" + re.escape(needle) + r"(?![A-Za-z0-9])"
+    return re.search(pattern, haystack) is not None
+
+
 class SkillExtractor:
     """
     Extrator de habilidades desde texto de currículum.
@@ -178,8 +193,8 @@ class SkillExtractor:
         # Iterar sobre cada categoría de tech_keywords
         for category, keywords in self.tech_keywords.items():
             for keyword in keywords:
-                # Si la palabra está en el texto
-                if keyword in text_lower:
+                # Si la palabra está en el texto como término completo
+                if contains_skill(text_lower, keyword):
                     # Clasificar según la categoría
                     if category in ['frontend', 'backend']:
                         if keyword not in found_skills:
@@ -207,18 +222,21 @@ class SkillExtractor:
         if self.skills_list:
             for skill in self.skills_list:
                 skill_lower = skill.lower()
-                if skill_lower in text_lower and skill_lower not in found_skills:
+                if (
+                    contains_skill(text_lower, skill_lower)
+                    and skill_lower not in found_skills
+                ):
                     skills['technical'].append(skill)
                     found_skills.add(skill_lower)
 
         # ========== BUSCAR SOFT SKILLS ==========
         for soft_skill in self.soft_skills:
-            if soft_skill in text_lower:
+            if contains_skill(text_lower, soft_skill):
                 skills['soft'].append(soft_skill)
 
         # ========== BUSCAR IDIOMAS ==========
         for language in self.languages:
-            if language in text_lower:
+            if contains_skill(text_lower, language):
                 skills['languages'].append(language)
 
         # Eliminar duplicados en cada categoría

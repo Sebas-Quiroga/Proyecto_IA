@@ -1,6 +1,6 @@
 # Despliegue en Render
 
-Guía de despliegue de la aplicación en [Render](https://render.com) como servicio web con Gunicorn + WhiteNoise.
+Guía de despliegue de la aplicación en [Render](https://render.com) usando el **runtime Docker**. La imagen incluye Tesseract, por lo que el OCR funciona igual que en local.
 
 ---
 
@@ -8,9 +8,10 @@ Guía de despliegue de la aplicación en [Render](https://render.com) como servi
 
 | Archivo | Propósito |
 |---------|-----------|
-| `render.yaml` | Definición del servicio (Blueprint de Render) |
-| `build.sh` | Script de build: dependencias, modelo y migraciones |
-| `runtime.txt` | Versión de Python (`python-3.11.0`) |
+| `render.yaml` | Blueprint del servicio web (runtime Docker, disco y variables) |
+| `Dockerfile` | Imagen `python:3.11-slim` + Tesseract + dependencias |
+| `docker-entrypoint.sh` | Migraciones, verificación del modelo y arranque de Gunicorn |
+| `build.sh` | Alternativa de build sin Docker (útil para debugging) |
 
 ---
 
@@ -20,70 +21,121 @@ Guía de despliegue de la aplicación en [Render](https://render.com) como servi
 services:
   - type: web
     name: cv-bert-analyzer
-    env: python3
-    buildCommand: chmod +x build.sh && ./build.sh
-    startCommand: gunicorn proyecto_cv.wsgi:application --bind 0.0.0.0:${PORT:-10000}
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /health/
     envVars:
-      - key: DJANGO_SETTINGS_MODULE
-        value: proyecto_cv.settings
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: MODEL_PATH
+        value: /app/data/models/bert_classifier_category.pt
+      - key: LABEL_MAPPING_PATH
+        value: /app/data/models/label_mapping.json
+      - key: METRICS_PATH
+        value: /app/data/models/metrics.json
+      - key: MODEL_GOOGLE_DRIVE_ID
+        value: "1dXUht0jrVIA8IqWTLEHPHXd-8kgRc1Um"
+      - key: OCR_LANG
+        value: eng+spa
+    disk:
+      name: cv-bert-data
+      mountPath: /app/data
+      sizeGB: 1
 ```
+
+El disco persistente en `/app/data` evita descargar el modelo (~440 MB) en cada arranque o redeploy.
 
 ---
 
-## Proceso de build (`build.sh`)
+## Proceso de arranque
 
-1. Actualizar pip
-2. Instalar **torch CPU-only** (índice oficial de PyTorch; más ligero para producción)
-3. Instalar **tokenizers/transformers solo binarios** (`--only-binary :all:` evita compilar Rust)
-4. Instalar el resto de `requirements.txt`
-5. Descargar modelo spaCy `en_core_web_sm`
-6. Crear `red_neuronal/models/`
-7. **Descargar el modelo BERT** desde Google Drive con `gdown`
-8. `collectstatic` (archivos estáticos con WhiteNoise)
-9. Migraciones
+`docker-entrypoint.sh`:
+
+1. Ejecuta `python manage.py migrate --noinput`.
+2. Verifica/descarga el modelo BERT con `ensure_model_exists()`.
+3. Arranca Gunicorn en `0.0.0.0:${PORT:-10000}` con workers/threads configurables.
+
+El build de la imagen:
+
+1. Instala Tesseract (`tesseract-ocr`, `eng` y `spa`).
+2. Instala **torch CPU-only** desde el índice oficial.
+3. Instala `requirements.txt` y `en_core_web_sm`.
+4. Ejecuta `collectstatic` (WhiteNoise).
 
 ---
 
 ## Ajustes de Django para producción
 
-En `proyecto_cv/settings.py`:
+`proyecto_cv/settings.py` se controla por variables de entorno:
 
 ```python
-DEBUG = 'RENDER' not in os.environ          # DEBUG off en Render
-ALLOWED_HOSTS = ['*', RENDER_EXTERNAL_HOSTNAME]
+DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() == "true"
+SECRET_KEY = os.environ["SECRET_KEY"]        # obligatoria si DEBUG=False
+ALLOWED_HOSTS = os.environ["ALLOWED_HOSTS"].split(",")
+CSRF_TRUSTED_ORIGINS = os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",")
 
-# WhiteNoise para archivos estáticos (sin nginx)
-MIDDLEWARE = [..., 'whitenoise.middleware.WhiteNoiseMiddleware', ...]
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_SSL_REDIRECT = True                   # con DEBUG=False
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
 ```
+
+`RENDER_EXTERNAL_HOSTNAME` se añade automáticamente a `ALLOWED_HOSTS` y `CSRF_TRUSTED_ORIGINS`.
 
 ---
 
-## Optimizaciones aplicadas
+## Variables de entorno recomendadas
 
-- **Lazy loading**: imports pesados (torch, transformers) dentro de funciones para no cargar PyTorch al inicio del servicio
-- **torch CPU-only**: imagen más pequeña y compatible
-- **tokenizers binarios**: evita fallos de compilación durante el build
+| Variable | Valor en Render |
+|----------|-----------------|
+| `DJANGO_DEBUG` | `False` |
+| `SECRET_KEY` | Generada por Render (`generateValue: true`) |
+| `ALLOWED_HOSTS` | Tu dominio (`*.onrender.com` o dominio propio) |
+| `MODEL_PATH` | `/app/data/models/bert_classifier_category.pt` |
+| `LABEL_MAPPING_PATH` | `/app/data/models/label_mapping.json` |
+| `METRICS_PATH` | `/app/data/models/metrics.json` |
+| `OCR_LANG` | `eng+spa` |
+| `WEB_CONCURRENCY` | `1` (BERT en CPU consume ~1.5 GB RAM) |
+| `WEB_THREADS` | `2` |
+| `WEB_TIMEOUT` | `180` |
+
+> No subas el `.pt` al repositorio: `MODEL_GOOGLE_DRIVE_ID` lo descarga y el disco lo conserva.
 
 ---
 
 ## Despliegue manual
 
-1. Conectar el repositorio en el dashboard de Render
-2. Render detecta `render.yaml` (Blueprint) o configurar manualmente:
-   - **Build command:** `chmod +x build.sh && ./build.sh`
-   - **Start command:** `gunicorn proyecto_cv.wsgi:application --bind 0.0.0.0:$PORT`
-3. Variables de entorno: `DJANGO_SETTINGS_MODULE=proyecto_cv.settings`
+1. Conectar el repositorio en el dashboard de Render.
+2. Crear un **Web Service** con runtime **Docker**.
+3. Render detecta `render.yaml` (Blueprint) o configura:
+   - **Dockerfile Path:** `./Dockerfile`
+   - **Health Check Path:** `/health/`
+4. Añadir las variables de entorno de la tabla anterior.
+5. Añadir un disco persistente montado en `/app/data`.
 
 ---
 
-## Solución de problemas históricos (commits de la rama deploy)
+## Verificación
 
-| Problema | Solución aplicada |
-|----------|-------------------|
-| Python 3.14 incompatible con torch | Forzar Python 3.11 vía `runtime.txt` |
-| Compilación de tokenizers falla | `pip install --only-binary :all: tokenizers transformers` |
-| Torch demasiado pesado | Instalar desde índice CPU-only |
-| Puerto incorrecto en Render | Bind a `0.0.0.0:$PORT` con Gunicorn |
-| Carga lenta al inicio | Lazy loading de imports de ML |
+```bash
+curl https://TU-SERVICIO.onrender.com/health/
+# {"status": "ok", "model_exists": true, "model_loaded": false}
+```
+
+`model_loaded` pasa a `true` tras el primer análisis (carga lazy).
+
+---
+
+## Solución de problemas
+
+| Problema | Solución |
+|----------|----------|
+| Build falla instalando torch | Se instala antes con el índice CPU-only; revisar logs |
+| `TesseractNotFoundError` | La imagen ya lo incluye; verificar que se despliegue el Dockerfile correcto |
+| Modelo no descarga | Revisar `MODEL_GOOGLE_DRIVE_ID`, cuota de Drive y logs |
+| `502` al arrancar | Aumentar `WEB_TIMEOUT`; BERT tarda en cargar en CPU |
+| Reinicio descarga el modelo | Confirmar que el disco está montado en `/app/data` |
+| CSRF falla en producción | Añadir el dominio a `ALLOWED_HOSTS` y `CSRF_TRUSTED_ORIGINS` |

@@ -11,7 +11,7 @@ Usuario sube PDF
     ↓
 Django recibe petición (views.py)
     ↓
-PyMuPDF (PDF digital) o Tesseract OCR (PDF escaneado)
+PyMuPDF (texto embebido) + fallback Tesseract (PDF escaneado)
     ↓
 GoogleTranslator (traducción al inglés)
     ↓
@@ -102,11 +102,17 @@ Modelo usado: `en_core_web_sm`.
 
 **Pillow** — Procesamiento de imágenes: convierte páginas PDF a imágenes antes de pasarlas a Tesseract.
 
-### Utilidades
+### Utilidades y despliegue
 
-**python-dotenv** — Variables de entorno desde `.env`, separando configuración sensible del código.
+**gdown** — Descarga del modelo BERT desde Google Drive cuando no existe en disco.
 
-**tqdm** — Barras de progreso durante el entrenamiento.
+**gunicorn** — Servidor WSGI de producción.
+
+**whitenoise** — Sirve archivos estáticos directamente desde Django (sin nginx).
+
+**Docker** — Imagen de producción con Tesseract incluido y disco persistente para el modelo.
+
+> La configuración se lee de variables de entorno del sistema (`.env.example` documenta las disponibles). Django no carga `.env` automáticamente.
 
 ---
 
@@ -124,5 +130,8 @@ Modelo usado: `en_core_web_sm`.
 | BERT + transformers | Modelo de machine learning |
 | torch | Framework de deep learning |
 | pandas / scikit-learn | Manejo y evaluación del dataset |
+| gdown | Descarga del modelo entrenado |
+| gunicorn / whitenoise | Servidor y estáticos en producción |
+| Docker | Empaquetado y despliegue con Tesseract |
 
 Cada tecnología cumple un rol específico en el pipeline de extremo a extremo: extraer → traducir → limpiar → analizar → clasificar.

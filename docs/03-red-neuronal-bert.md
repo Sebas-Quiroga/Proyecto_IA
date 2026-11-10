@@ -1,6 +1,8 @@
 # DOCUMENTACIÓN TÉCNICA DE LA RED NEURONAL BERT
 ## Sistema de Clasificación de Currículums
 
+> **Nota:** las referencias a números de línea son orientativas. El código fuente en `red_neuronal/` es la fuente de verdad.
+
 ---
 
 # 1. INTRODUCCIÓN Y CONTEXTO
@@ -246,7 +248,7 @@ encoding = tokenizer(
     max_length=512,               # Máx 512 tokens (límite de BERT)
     padding='max_length',         # Rellenar a 512
     truncation=True,              # Truncar si es más largo
-    return_att_mask=True,         # Máscara de atención
+    return_attention_mask=True,   # Máscara de atención
     return_tensors='pt'           # Tensores PyTorch
 )
 ```
@@ -290,20 +292,24 @@ probs = torch.softmax(outputs.logits, dim=1)
 ## 4.2 Parámetros de Entrenamiento
 
 ```python
-# Configuración de entrenamiento
-EPOCHS = 3                # Número de épocas
-BATCH_SIZE = 16          # Muestras por batch
-LEARNING_RATE = 2e-5      # 0.00002 (típico para BERT)
-MAX_LEN = 512             # Longitud máxima de tokens
+# Configuración de entrenamiento (red_neuronal/src/utils/config.py)
+EPOCHS = 3                     # Número de épocas
+BATCH_SIZE = 16                # Muestras por batch
+LEARNING_RATE = 2e-5           # 0.00002 (típico para BERT)
+MAX_LEN = 512                  # Longitud máxima de tokens
+NUM_WORKERS = 0                # Seguro en Windows y contenedores
+RANDOM_SEED = 42               # Reproducibilidad
+EARLY_STOPPING_PATIENCE = 2    # Épocas sin mejora antes de parar
 
 # Optimizador
-optimizer = AdamW(model.parameters(), lr=2e-5)
+optimizer = AdamW(model.parameters(), lr=LEARNING_RATE)
 
-# Scheduler (learning rate con warmup)
+# Scheduler (learning rate con warmup del 10%)
+total_steps = max(1, len(train_loader) * EPOCHS)
 scheduler = get_linear_schedule_with_warmup(
     optimizer,
-    num_warmup_steps=0,
-    num_training_steps=len(train_loader) * EPOCHS
+    num_warmup_steps=int(total_steps * 0.1),
+    num_training_steps=total_steps,
 )
 ```
 
@@ -342,10 +348,11 @@ optimizer = AdamW(model.parameters(), lr=2e-5)
 #### Scheduler: Learning Rate Lineal con Warmup
 
 ```python
+total_steps = max(1, len(train_loader) * EPOCHS)
 scheduler = get_linear_schedule_with_warmup(
     optimizer,
-    num_warmup_steps=0,
-    num_training_steps=len(train_loader) * EPOCHS
+    num_warmup_steps=int(total_steps * 0.1),
+    num_training_steps=total_steps,
 )
 ```
 
@@ -358,10 +365,10 @@ Es un programador que ajusta el learning rate durante el entrenamiento. En lugar
 - ¿Por qué? Al principio los pesos están randomizados, un LR alto causaría actualizaciones grandes e inestables
 - Da tiempo al modelo de "estabilizarse" antes de aprender
 
-**num_warmup_steps=0**:
-- Significa que no hacemos warmup (LR constante desde el inicio)
-- El LR ya es suficientemente bajo (2e-5) para ser estable
-- Simplificación válida para datasets pequeños (10,000 muestras)
+**num_warmup_steps = 10% de los pasos**:
+- El LR sube gradualmente durante el primer 10% del entrenamiento
+- Después decae linealmente hasta el final
+- Evita actualizaciones inestables al inicio del fine-tuning
 
 **num_training_steps**:
 - Total de pasos de entrenamiento = batches por época × épocas
@@ -440,26 +447,31 @@ Preprocesamiento
 ├── Codificación de etiquetas (42 categorías)
 └── Train/Validation split (80/20)
     ↓
-Entrenamiento (3 épocas)
+Entrenamiento (hasta 3 épocas)
+├── Pesos por clase (balanced)
 ├── Por cada batch:
 │   ├── Forward pass: texto → BERT → logits
-│   ├── Calcular pérdida (CrossEntropy)
+│   ├── Calcular pérdida (CrossEntropy ponderada)
 │   ├── Backward pass (gradientes)
 │   ├── Clip gradientes (max_norm=1)
 │   ├── Actualizar pesos
 │   └── Actualizar learning rate
-└── Evaluar en validación después de cada época
+├── Evaluar train y validación después de cada época
+├── Guardar el mejor estado (mayor accuracy de validación)
+└── Early stopping si no mejora en 2 épocas
     ↓
-Guardar modelo (.pt)
+Guardar modelo (.pt) + label_mapping.json + metrics.json
 ```
 
 ## 5.2 Función de Pérdida
 
 ```python
-# CrossEntropyLoss para clasificación multiclase
-criterion = nn.CrossEntropyLoss()
+# CrossEntropyLoss multiclase con pesos por clase
+criterion = nn.CrossEntropyLoss(weight=class_weights)
 loss = criterion(outputs, labels)
 ```
+
+Los `class_weights` se calculan con `compute_class_weight("balanced")` para que las clases minoritarias pesen más y el modelo no ignore categorías poco frecuentes.
 
 > **Código fuente:** `red_neuronal/train_bert_classifier.py:170` y `red_neuronal/src/models/bert_classifier.py:178`
 
@@ -531,11 +543,11 @@ peso = peso * (1 - lr * weight_decay)           # Weight decay
 ## 5.4 Scheduler (Learning Rate con Warmup)
 
 ```python
-# Learning rate lineal con warmup
+# Learning rate lineal con warmup del 10%
 scheduler = get_linear_schedule_with_warmup(
     optimizer,
-    num_warmup_steps=0,  # Warmup gradually
-    num_training_steps=total_steps
+    num_warmup_steps=int(total_steps * 0.1),
+    num_training_steps=total_steps,
 )
 ```
 
@@ -579,13 +591,11 @@ for step in range(total_steps):
     scheduler.step()
 ```
 
-### ¿Por qué num_warmup_steps=0 en nuestro caso?
+### ¿Por qué usamos warmup del 10%?
 
-En BERT original, se usa warmup para evitar oscilaciones. Sin embargo, con 10,000 muestras y 3 épocas, el entrenamiento es relativamente corto. Por lo tanto:
-
-- **num_warmup_steps=0** significa no hacer warmup (LR constante desde el inicio)
-- El LR bajo de por sí (2e-5) ya es suficientemente conservador
-- Es una simplificación que funciona bien en la práctica
+- **Estabilidad inicial**: evita actualizaciones grandes cuando los pesos de la capa clasificadora aún son aleatorios.
+- **Convergencia suave**: tras el warmup, el LR decae linealmente hasta el final.
+- **Costo mínimo**: con 3 épocas, el warmup solo cubre una fracción pequeña de los pasos.
 
 ### Gráfico del Learning Rate:
 
@@ -695,8 +705,17 @@ Engineering & Manufacturing      435 (4.4%)
 
 ## 7.1 Métricas del Modelo
 
+El entrenamiento escribe `red_neuronal/models/metrics.json` con:
+
+- `accuracy`, `macro_f1`, `weighted_f1`
+- `classification_report` y `confusion_matrix`
+- `accuracy_train` y `accuracy_val` por época
+- hiperparámetros y número de muestras
+
+La página `/modelo/` lee ese archivo. Si no existe, muestra valores ilustrativos y lo indica explícitamente.
+
 ```python
-# Accuracy en validación (por época)
+# Formato de las series por época en metrics.json (valores de ejemplo)
 Epoch 1 - Validation Accuracy: 0.8234
 Epoch 2 - Validation Accuracy: 0.8712
 Epoch 3 - Validation Accuracy: 0.8934
@@ -715,10 +734,12 @@ Epoch 3 - Validation Accuracy: 0.8934
 
 ## 7.3 Limitaciones Conocidas
 
-1. **Desbalance de clases**: Technology domina el dataset
-2. **512 tokens de límite**: Currículums muy largos se truncan
-3. **Solo inglés**: El modelo está en inglés
-4. **Traducción imperfecta**: La traducción automática puede perder matiz
+1. **Desbalance de clases**: Technology domina el dataset; se mitiga con `class_weights="balanced"` y split estratificado.
+2. **512 tokens de límite**: Currículums muy largos se truncan.
+3. **Solo inglés**: El modelo está en inglés; se traduce antes de predecir.
+4. **Traducción imperfecta**: La traducción automática puede perder matiz.
+5. **Dependencia del mapeo**: `label_mapping.json` debe corresponder al checkpoint; si se reconstruye desde el CSV, el orden de clases puede cambiar.
+6. **Modelo ausente**: la app falla de forma controlada en lugar de predecir con pesos aleatorios.
 
 ---
 
@@ -729,9 +750,9 @@ Epoch 3 - Validation Accuracy: 0.8934
 ```
 Usuario sube PDF
     ↓
-[1] Extraer texto
-    ├── PyMuPDF (PDF digital)
-    └── Tesseract OCR (PDF escaneado)
+[1] Extraer texto (híbrido)
+    ├── PyMuPDF page.get_text() (texto embebido)
+    └── Tesseract OCR solo si la página no tiene texto suficiente
     ↓
 [2] Detectar idioma y traducir
     └── langdetect + GoogleTranslator
@@ -790,13 +811,13 @@ Cada paso es necesario:
 > Es el límite de arquitectura de BERT. 512 tokens son suficientes para un CV típico (~2000-3000 palabras).
 
 ### 4. ¿Por qué 3 épocas?
-> Es un balance entre tiempo de entrenamiento y precisión. Con 10k muestras, 3 épocas converge bien sin overfitting.
+> Es un balance entre tiempo de entrenamiento y precisión. Además hay early stopping: si la validación deja de mejorar durante 2 épocas, se detiene y se conserva el mejor checkpoint.
 
 ### 5. ¿Por qué Tesseract para OCR?
-> Tesseract es open source, no tiene costo, y ofrece precisión aceptable. Alternativas como Textract son de pago.
+> Tesseract es open source, no tiene costo, y ofrece precisión aceptable. Alternativas como Textract son de pago. Además, solo se usa como fallback cuando el PDF no trae texto embebido.
 
 ### 6. ¿Cómo se maneja el desbalance de clases?
-> Usamos stratified split para mantener proporciones y el modelo aprende de todos los ejemplos aunque no estén balanceados.
+> Usamos stratified split para mantener proporciones y `class_weights="balanced"` en la pérdida para que las clases minoritarias tengan más peso.
 
 ### 7. ¿Qué es transfer learning?
 > Es usar un modelo pre-entrenado (BERT en este caso) y ajustarlo a una tarea específica. No entrenamos desde cero.

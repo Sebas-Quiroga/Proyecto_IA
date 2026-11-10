@@ -9,12 +9,17 @@ Este documento explica las 3 gráficas mostradas en la página de información d
 ### Descripción
 La evolución del rendimiento del modelo durante las 3 épocas de entrenamiento.
 
-### Datos (Valores típicos de entrenamiento):
+### Datos
+
+La gráfica se alimenta de `red_neuronal/models/metrics.json` (`accuracy_train` y `accuracy_val`), generado por `train_bert_classifier.py`.
+
 | Época | Entrenamiento | Validación |
 |-------|---------------|------------|
-| 1 | 82.34% | 81.00% |
-| 2 | 87.12% | 86.00% |
-| 3 | 89.34% | 89.00% |
+| 1 | según `metrics.json` | según `metrics.json` |
+| 2 | según `metrics.json` | según `metrics.json` |
+| 3 | según `metrics.json` | según `metrics.json` |
+
+Si el archivo no existe, la página muestra valores ilustrativos y lo indica con una nota.
 
 ### Explicación Técnica
 
@@ -25,9 +30,9 @@ Esta gráfica muestra cómo el modelo fue mejorando su precisión a lo largo del
 - **Épocas**: Número de veces que el modelo ve todo el dataset
 - **Convergencia**: El modelo alcanza un punto estable donde las mejoras son menores
 
-El modelo comienza con una precisión aproximada de 82% en la primera época, mejorando progresivamente hasta alcanzar aproximadamente 89% en la tercera época. La diferencia mínima entre las curvas de entrenamiento y validación indica que el modelo generaliza bien sin sobreajuste (overfitting).
+La curva muestra la evolución real de accuracy en entrenamiento y validación. Si ambas curvas se mantienen cercanas, el modelo generaliza bien; si la de entrenamiento sube y la de validación baja, hay overfitting y el early stopping conserva el mejor checkpoint.
 
-**Nota:** Los valores específicos de accuracy dependen del entrenamiento real y pueden variar. Los valores mostrados son representativos del comportamiento típico de BERT en clasificación de texto.
+**Nota:** Los valores específicos dependen del entrenamiento real. Si existe `metrics.json`, la web muestra las métricas reales; si no, usa valores ilustrativos marcados como tales.
 
 ---
 
@@ -59,9 +64,10 @@ Esta gráfica representa la distribución real de los datos de entrenamiento. El
 - **Categorías**: Las 42 profesiones objetivo
 - **Desbalance**: La categoría Technology tiene significativamente más ejemplos
 
-El desbalance de datos ( Technology con 25% del total) se maneja mediante:
-- Stratified split: Mantiene proporciones en entrenamiento y validación
-- Media ponderada: El modelo aprende de todas las categorías proporcionalmente
+El desbalance de datos (Technology con 25% del total) se maneja mediante:
+- **Stratified split**: mantiene proporciones en entrenamiento y validación
+- **Class weights balanceados**: la pérdida da más peso a las clases minoritarias
+- **Macro F1**: evalúa todas las categorías por igual, sin que Technology domine la métrica
 
 ---
 
@@ -175,8 +181,8 @@ Para una aplicación web interactiva como esta, Chart.js es la elección correct
 
 | Gráfica | Tipo de Dato | Fuente |
 |---------|--------------|--------|
-| Accuracy por Época | Ilustrativo | Comportamiento típico de entrenamiento |
-| Distribución Dataset | Real | training_data.csv (10,000 CVs) |
+| Accuracy por Época | Real (o ilustrativo si falta) | `red_neuronal/models/metrics.json` |
+| Distribución Dataset | Real | `training_data.csv` (10,000 CVs) |
 | Parámetros Modelo | Real | Arquitectura bert-base-uncased |
 
 ---

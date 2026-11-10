@@ -92,7 +92,7 @@ El modelo BERT entrenado se encuentra disponible en Google Drive:
 
 **Modelo entrenado:**
 - Archivo: `bert_classifier_category.pt`
-- Precisión: ~89% en validación
+- Precisión: consultar `models/metrics.json` (referencia histórica: ~89%)
 - Categorías: 42 clases profesionales
 
 ---

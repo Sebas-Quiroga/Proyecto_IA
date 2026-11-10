@@ -43,7 +43,8 @@ Human Resources                  320   (3.2%)
 
 El desbalance (Technology concentra el 25%) se maneja mediante:
 - **Stratified split**: mantiene proporciones en entrenamiento y validación
-- **Métricas ponderadas**: evaluación proporcional de todas las categorías
+- **Class weights balanceados**: `compute_class_weight("balanced")` en la pérdida
+- **Macro F1 y weighted F1**: métricas complementarias a accuracy
 
 ---
 
@@ -55,6 +56,10 @@ El desbalance (Technology concentra el 25%) se maneja mediante:
 | Batch size | 16 |
 | Learning rate | 2e-5 |
 | Split | 80/20 estratificado |
+| Warmup | 10% de los pasos |
+| Early stopping | paciencia 2 |
+| Semilla | 42 |
+| Class weights | `balanced` |
 
 Ver [03-red-neuronal-bert.md](03-red-neuronal-bert.md) para el proceso completo.
 

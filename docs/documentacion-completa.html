@@ -34,7 +34,7 @@
 <header>
   <h1>&#129302; Proyecto IA BERT</h1>
   <p>Sistema de Clasificación de Currículums con Red Neuronal BERT</p>
-  <div class="meta">Django · PyTorch · Transformers · spaCy · Tesseract OCR &nbsp;|&nbsp; v1.0 &nbsp;|&nbsp; 2026-08-24</div>
+  <div class="meta">Django · PyTorch · Transformers · spaCy · Tesseract OCR · Docker &nbsp;|&nbsp; v1.1 &nbsp;|&nbsp; 2026-11-09</div>
 </header>
 <nav>
   <strong>Contenido</strong>
@@ -43,6 +43,9 @@
   </ol>
 </nav>
 <main>
+<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px 16px;margin:16px 0;">
+  <strong>Nota:</strong> este HTML es una instantánea del manual. La documentación canónica y actualizada está en los archivos Markdown de <code>docs/</code> y en el <code>README.md</code>.
+</div>
 <section id="sec-01"><h1 id="guia-de-instalacion-y-configuracion">Guía de Instalación y Configuración</h1>
 <p>Pasos para instalar las dependencias e inicializar el sistema de clasificación de currículums.</p>
 <hr />
@@ -59,7 +62,7 @@
 <tr>
 <td>Python</td>
 <td>3.11 (recomendado)</td>
-<td><code>runtime.txt</code> define 3.11 para despliegue</td>
+<td>El <code>Dockerfile</code> usa <code>python:3.11-slim</code></td>
 </tr>
 <tr>
 <td>pip</td>
@@ -105,14 +108,13 @@ python3 -m venv venv
 source venv/bin/activate
 </code></pre>
 <h3 id="22-dependencias-del-proyecto">2.2 Dependencias del proyecto</h3>
-<pre><code class="language-bash"># 1. Framework web
-pip install &quot;Django&gt;=4.0&quot;
-
-# 2. Red neuronal (torch, transformers, spacy, OCR, etc.)
-cd red_neuronal
+<pre><code class="language-bash"># Dependencias de runtime (Django, torch, transformers, spaCy, OCR, etc.)
 pip install -r requirements.txt
+
+# Dependencias de desarrollo (pytest, ruff)
+pip install -r requirements-dev.txt
 </code></pre>
-<p>Las dependencias principales son: <code>torch</code>, <code>transformers</code>, <code>pandas</code>, <code>scikit-learn</code>, <code>spacy</code>, <code>pytesseract</code>, <code>deep-translator</code>, <code>langdetect</code>, <code>pymupdf</code>, <code>Pillow</code>. Ver <a href="#sec-02">02-arquitectura-tecnologias.md</a> para el rol de cada una.</p>
+<p>Las dependencias principales son: <code>Django</code>, <code>torch</code>, <code>transformers</code>, <code>pandas</code>, <code>scikit-learn</code>, <code>spacy</code>, <code>pytesseract</code>, <code>deep-translator</code>, <code>langdetect</code>, <code>pymupdf</code>, <code>Pillow</code>, <code>gdown</code>, <code>gunicorn</code>, <code>whitenoise</code>. Ver <a href="#sec-02">02-arquitectura-tecnologias.md</a> para el rol de cada una.</p>
 <h3 id="23-descargar-modelo-de-spacy">2.3 Descargar modelo de spaCy</h3>
 <pre><code class="language-bash">python -m spacy download en_core_web_sm
 </code></pre>
@@ -188,20 +190,23 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(BASE_DIR, 'red_neuronal'))
 </code></pre>
 <h3 id="tesseractnotfounderror"><code>TesseractNotFoundError</code></h3>
-<p>Configurar la ruta de Tesseract en <code>views.py</code>:</p>
-<pre><code class="language-python">import pytesseract
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+<p>Configurar la ruta con la variable de entorno <code>TESSERACT_CMD</code> (no editar <code>views.py</code>):</p>
+<pre><code class="language-powershell">$env:TESSERACT_CMD="C:\Program Files\Tesseract-OCR\tesseract.exe"
 </code></pre>
+<p>En Linux/Docker el valor por defecto es <code>/usr/bin/tesseract</code>.</p>
 <h3 id="no-such-file-or-directory-training_datacsv"><code>No such file or directory: training_data.csv</code></h3>
 <p>Verificar que el dataset exista en <code>datos_entrenamiento/1_resume_classification/training_data.csv</code>.</p>
 <hr />
 <h2 id="8-resumen-de-comandos">8. Resumen de Comandos</h2>
 <pre><code class="language-bash">venv\Scripts\activate                 # Activar entorno (Windows)
-pip install &quot;Django&gt;=4.0&quot;
-cd red_neuronal &amp;&amp; pip install -r requirements.txt
+pip install -r requirements.txt
 python -m spacy download en_core_web_sm
-python manage.py makemigrations &amp;&amp; python manage.py migrate
+python manage.py migrate
 python manage.py runserver
+
+# Tests
+pip install -r requirements-dev.txt
+python -m pytest -q
 </code></pre></section><section id="sec-02"><h1 id="arquitectura-y-tecnologias">Arquitectura y Tecnologías</h1>
 <p>Descripción técnica de las tecnologías del proyecto, su rol en el pipeline y la justificación de cada elección.</p>
 <hr />
@@ -327,9 +332,12 @@ Usuario ve la predicción
 <p><strong>pymupdf (fitz)</strong> — Extrae texto de PDFs digitales (con texto embebido) y convierte páginas a imágenes para OCR.</p>
 <p><strong>pytesseract</strong> — Wrapper de Python para Tesseract OCR (motor de Google). Convierte imágenes a texto; requiere Tesseract instalado en el sistema.</p>
 <p><strong>Pillow</strong> — Procesamiento de imágenes: convierte páginas PDF a imágenes antes de pasarlas a Tesseract.</p>
-<h3 id="utilidades">Utilidades</h3>
-<p><strong>python-dotenv</strong> — Variables de entorno desde <code>.env</code>, separando configuración sensible del código.</p>
-<p><strong>tqdm</strong> — Barras de progreso durante el entrenamiento.</p>
+<h3 id="utilidades">Utilidades y despliegue</h3>
+<p><strong>gdown</strong> — Descarga del modelo BERT desde Google Drive cuando no existe en disco.</p>
+<p><strong>gunicorn</strong> — Servidor WSGI de producción.</p>
+<p><strong>whitenoise</strong> — Sirve archivos estáticos desde Django sin nginx.</p>
+<p><strong>Docker</strong> — Imagen de producción con Tesseract incluido y disco persistente para el modelo.</p>
+<p>La configuración se lee de variables de entorno del sistema; Django no carga <code>.env</code> automáticamente.</p>
 <hr />
 <h2 id="4-resumen-rol-por-tecnologia">4. Resumen: Rol por Tecnología</h2>
 <table>
@@ -742,19 +750,23 @@ probs = torch.softmax(outputs.logits, dim=1)
 </blockquote>
 <h2 id="42-parametros-de-entrenamiento">4.2 Parámetros de Entrenamiento</h2>
 <pre><code class="language-python"># Configuración de entrenamiento
-EPOCHS = 3                # Número de épocas
-BATCH_SIZE = 16          # Muestras por batch
-LEARNING_RATE = 2e-5      # 0.00002 (típico para BERT)
-MAX_LEN = 512             # Longitud máxima de tokens
+EPOCHS = 3                     # Número de épocas
+BATCH_SIZE = 16                # Muestras por batch
+LEARNING_RATE = 2e-5           # 0.00002 (típico para BERT)
+MAX_LEN = 512                  # Longitud máxima de tokens
+NUM_WORKERS = 0                # Seguro en Windows y contenedores
+RANDOM_SEED = 42               # Reproducibilidad
+EARLY_STOPPING_PATIENCE = 2    # Épocas sin mejora antes de parar
 
 # Optimizador
-optimizer = AdamW(model.parameters(), lr=2e-5)
+optimizer = AdamW(model.parameters(), lr=LEARNING_RATE)
 
-# Scheduler (learning rate con warmup)
+# Scheduler (warmup del 10%)
+total_steps = max(1, len(train_loader) * EPOCHS)
 scheduler = get_linear_schedule_with_warmup(
     optimizer,
-    num_warmup_steps=0,
-    num_training_steps=len(train_loader) * EPOCHS
+    num_warmup_steps=int(total_steps * 0.1),
+    num_training_steps=total_steps,
 )
 </code></pre>
 <blockquote>
@@ -793,8 +805,8 @@ scheduler = get_linear_schedule_with_warmup(
 <h4 id="scheduler-learning-rate-lineal-con-warmup">Scheduler: Learning Rate Lineal con Warmup</h4>
 <pre><code class="language-python">scheduler = get_linear_schedule_with_warmup(
     optimizer,
-    num_warmup_steps=0,
-    num_training_steps=len(train_loader) * EPOCHS
+    num_warmup_steps=int(total_steps * 0.1),
+    num_training_steps=total_steps
 )
 </code></pre>
 <p><strong>¿Qué es un Scheduler?</strong><br />
@@ -804,10 +816,10 @@ Es un programador que ajusta el learning rate durante el entrenamiento. En lugar
 - Aumenta gradualmente hasta alcanzar el LR objetivo (2e-5)<br />
 - ¿Por qué? Al principio los pesos están randomizados, un LR alto causaría actualizaciones grandes e inestables<br />
 - Da tiempo al modelo de "estabilizarse" antes de aprender</p>
-<p><strong>num_warmup_steps=0</strong>:<br />
-- Significa que no hacemos warmup (LR constante desde el inicio)<br />
-- El LR ya es suficientemente bajo (2e-5) para ser estable<br />
-- Simplificación válida para datasets pequeños (10,000 muestras)</p>
+<p><strong>num_warmup_steps = 10% de los pasos</strong>:<br />
+- El LR sube gradualmente durante el primer 10% del entrenamiento<br />
+- Después decae linealmente hasta el final<br />
+- Evita actualizaciones inestables al inicio del fine-tuning</p>
 <p><strong>num_training_steps</strong>:<br />
 - Total de pasos de entrenamiento = batches por época × épocas<br />
 - Con 10,000 muestras y batch_size=16: ~625 batches por época<br />
@@ -870,23 +882,27 @@ Preprocesamiento
 ├── Codificación de etiquetas (42 categorías)
 └── Train/Validation split (80/20)
     ↓
-Entrenamiento (3 épocas)
+Entrenamiento (hasta 3 épocas)
+├── Pesos por clase (balanced)
 ├── Por cada batch:
 │   ├── Forward pass: texto → BERT → logits
-│   ├── Calcular pérdida (CrossEntropy)
+│   ├── Calcular pérdida (CrossEntropy ponderada)
 │   ├── Backward pass (gradientes)
 │   ├── Clip gradientes (max_norm=1)
 │   ├── Actualizar pesos
 │   └── Actualizar learning rate
-└── Evaluar en validación después de cada época
+├── Evaluar train y validación después de cada época
+├── Guardar el mejor estado (mayor accuracy de validación)
+└── Early stopping si no mejora en 2 épocas
     ↓
-Guardar modelo (.pt)
+Guardar modelo (.pt) + label_mapping.json + metrics.json
 </code></pre>
 <h2 id="52-funcion-de-perdida">5.2 Función de Pérdida</h2>
-<pre><code class="language-python"># CrossEntropyLoss para clasificación multiclase
-criterion = nn.CrossEntropyLoss()
+<pre><code class="language-python"># CrossEntropyLoss multiclase con pesos por clase
+criterion = nn.CrossEntropyLoss(weight=class_weights)
 loss = criterion(outputs, labels)
 </code></pre>
+<p>Los <code>class_weights</code> se calculan con <code>compute_class_weight("balanced")</code> para dar más peso a las clases minoritarias.</p>
 <blockquote>
 <p><strong>Código fuente:</strong> <code>red_neuronal/train_bert_classifier.py:170</code> y <code>red_neuronal/src/models/bert_classifier.py:178</code></p>
 </blockquote>
@@ -978,11 +994,11 @@ peso = peso - lr * m / (sqrt(v) + epsilon)      # Actualizar
 peso = peso * (1 - lr * weight_decay)           # Weight decay
 </code></pre>
 <h2 id="54-scheduler-learning-rate-con-warmup">5.4 Scheduler (Learning Rate con Warmup)</h2>
-<pre><code class="language-python"># Learning rate lineal con warmup
+<pre><code class="language-python"># Learning rate lineal con warmup del 10%
 scheduler = get_linear_schedule_with_warmup(
     optimizer,
-    num_warmup_steps=0,  # Warmup gradually
-    num_training_steps=total_steps
+    num_warmup_steps=int(total_steps * 0.1),
+    num_training_steps=total_steps,
 )
 </code></pre>
 <h3 id="que-es-un-scheduler">¿Qué es un Scheduler?</h3>
@@ -1039,12 +1055,11 @@ for step in range(total_steps):
     optimizer.step()
     scheduler.step()
 </code></pre>
-<h3 id="por-que-num_warmup_steps0-en-nuestro-caso">¿Por qué num_warmup_steps=0 en nuestro caso?</h3>
-<p>En BERT original, se usa warmup para evitar oscilaciones. Sin embargo, con 10,000 muestras y 3 épocas, el entrenamiento es relativamente corto. Por lo tanto:</p>
+<h3 id="por-que-warmup-10">¿Por qué usamos warmup del 10%?</h3>
 <ul>
-<li><strong>num_warmup_steps=0</strong> significa no hacer warmup (LR constante desde el inicio)</li>
-<li>El LR bajo de por sí (2e-5) ya es suficientemente conservador</li>
-<li>Es una simplificación que funciona bien en la práctica</li>
+<li><strong>Estabilidad inicial</strong>: evita actualizaciones grandes cuando los pesos de la capa clasificadora aún son aleatorios.</li>
+<li><strong>Convergencia suave</strong>: tras el warmup, el LR decae linealmente hasta el final.</li>
+<li><strong>Costo mínimo</strong>: con 3 épocas, el warmup solo cubre una fracción pequeña de los pasos.</li>
 </ul>
 <h3 id="grafico-del-learning-rate">Gráfico del Learning Rate:</h3>
 <pre><code>Sin scheduler (constante):
@@ -1341,12 +1356,22 @@ Mostrar resultado
 <tr>
 <td><code>/upload/</code></td>
 <td><code>upload_cv</code></td>
-<td>Procesa el PDF subido y muestra la predicción</td>
+<td>Procesa el PDF y redirige al inicio (PRG)</td>
+</tr>
+<tr>
+<td><code>/analyze/</code></td>
+<td><code>analyze_pdf</code></td>
+<td>Procesa el PDF y muestra el resultado en la misma página</td>
 </tr>
 <tr>
 <td><code>/modelo/</code></td>
 <td><code>model_info</code></td>
 <td>Información del modelo con gráficas interactivas</td>
+</tr>
+<tr>
+<td><code>/health/</code></td>
+<td><code>health</code></td>
+<td>Health check para Render</td>
 </tr>
 <tr>
 <td><code>/admin/</code></td>
@@ -1638,9 +1663,10 @@ labels = df['Category'].tolist()
 - <strong>Dataset</strong>: Conjunto de datos utilizados para entrenar el modelo<br />
 - <strong>Categorías</strong>: Las 42 profesiones objetivo<br />
 - <strong>Desbalance</strong>: La categoría Technology tiene significativamente más ejemplos</p>
-<p>El desbalance de datos ( Technology con 25% del total) se maneja mediante:<br />
-- Stratified split: Mantiene proporciones en entrenamiento y validación<br />
-- Media ponderada: El modelo aprende de todas las categorías proporcionalmente</p>
+<p>El desbalance de datos (Technology con 25% del total) se maneja mediante:<br />
+- <strong>Stratified split</strong>: mantiene proporciones en entrenamiento y validación<br />
+- <strong>Class weights balanceados</strong>: la pérdida da más peso a las clases minoritarias<br />
+- <strong>Macro F1</strong>: evalúa todas las categorías por igual</p>
 <hr />
 <h2 id="3-grafica-de-parametros-del-modelo">3. Gráfica de Parámetros del Modelo</h2>
 <h3 id="descripcion_2">Descripción</h3>
@@ -1800,8 +1826,8 @@ labels = df['Category'].tolist()
 <tbody>
 <tr>
 <td>Accuracy por Época</td>
-<td>Ilustrativo</td>
-<td>Comportamiento típico de entrenamiento</td>
+<td>Real (o ilustrativo si falta)</td>
+<td>red_neuronal/models/metrics.json</td>
 </tr>
 <tr>
 <td>Distribución Dataset</td>
@@ -1830,7 +1856,7 @@ labels = df['Category'].tolist()
 <li>Dataset: <code>datos_entrenamiento/1_resume_classification/training_data.csv</code></li>
 <li>Modelo: <code>red_neuronal/models/bert_classifier_category.pt</code></li>
 </ul></section><section id="sec-07"><h1 id="despliegue-en-render">Despliegue en Render</h1>
-<p>Guía de despliegue de la aplicación en <a href="https://render.com">Render</a> como servicio web con Gunicorn + WhiteNoise.</p>
+<p>Guía de despliegue de la aplicación en <a href="https://render.com">Render</a> con runtime Docker, Gunicorn y WhiteNoise. La imagen incluye Tesseract para OCR.</p>
 <hr />
 <h2 id="archivos-de-configuracion">Archivos de configuración</h2>
 <table>
@@ -1846,12 +1872,16 @@ labels = df['Category'].tolist()
 <td>Definición del servicio (Blueprint de Render)</td>
 </tr>
 <tr>
-<td><code>build.sh</code></td>
-<td>Script de build: dependencias, modelo y migraciones</td>
+<td><code>Dockerfile</code></td>
+<td>Imagen <code>python:3.11-slim</code> + Tesseract + dependencias</td>
 </tr>
 <tr>
-<td><code>runtime.txt</code></td>
-<td>Versión de Python (<code>python-3.11.0</code>)</td>
+<td><code>docker-entrypoint.sh</code></td>
+<td>Migraciones, verificación del modelo y arranque de Gunicorn</td>
+</tr>
+<tr>
+<td><code>build.sh</code></td>
+<td>Alternativa de build sin Docker</td>
 </tr>
 </tbody>
 </table>
@@ -1860,36 +1890,66 @@ labels = df['Category'].tolist()
 <pre><code class="language-yaml">services:
   - type: web
     name: cv-bert-analyzer
-    env: python3
-    buildCommand: chmod +x build.sh &amp;&amp; ./build.sh
-    startCommand: gunicorn proyecto_cv.wsgi:application --bind 0.0.0.0:${PORT:-10000}
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /health/
     envVars:
-      - key: DJANGO_SETTINGS_MODULE
-        value: proyecto_cv.settings
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: MODEL_PATH
+        value: /app/data/models/bert_classifier_category.pt
+      - key: LABEL_MAPPING_PATH
+        value: /app/data/models/label_mapping.json
+      - key: METRICS_PATH
+        value: /app/data/models/metrics.json
+      - key: MODEL_GOOGLE_DRIVE_ID
+        value: "1dXUht0jrVIA8IqWTLEHPHXd-8kgRc1Um"
+      - key: OCR_LANG
+        value: eng+spa
+    disk:
+      name: cv-bert-data
+      mountPath: /app/data
+      sizeGB: 1
 </code></pre>
 <hr />
-<h2 id="proceso-de-build-buildsh">Proceso de build (<code>build.sh</code>)</h2>
+<h2 id="proceso-de-build">Proceso de build y arranque</h2>
+<p><strong>Build de la imagen:</strong></p>
 <ol>
-<li>Actualizar pip</li>
-<li>Instalar <strong>torch CPU-only</strong> (índice oficial de PyTorch; más ligero para producción)</li>
-<li>Instalar <strong>tokenizers/transformers solo binarios</strong> (<code>--only-binary :all:</code> evita compilar Rust)</li>
-<li>Instalar el resto de <code>requirements.txt</code></li>
-<li>Descargar modelo spaCy <code>en_core_web_sm</code></li>
-<li>Crear <code>red_neuronal/models/</code></li>
-<li><strong>Descargar el modelo BERT</strong> desde Google Drive con <code>gdown</code></li>
-<li><code>collectstatic</code> (archivos estáticos con WhiteNoise)</li>
-<li>Migraciones</li>
+<li>Instalar Tesseract (<code>tesseract-ocr</code>, <code>eng</code> y <code>spa</code>)</li>
+<li>Instalar <strong>torch CPU-only</strong> desde el índice oficial</li>
+<li>Instalar <strong>tokenizers/transformers solo binarios</strong></li>
+<li>Instalar <code>requirements.txt</code> y <code>en_core_web_sm</code></li>
+<li><code>collectstatic</code> con WhiteNoise</li>
+</ol>
+<p><strong>Arranque (<code>docker-entrypoint.sh</code>):</strong></p>
+<ol>
+<li>Ejecutar migraciones</li>
+<li>Verificar/descargar el modelo BERT con <code>ensure_model_exists()</code></li>
+<li>Arrancar Gunicorn en <code>0.0.0.0:${PORT:-10000}</code></li>
 </ol>
 <hr />
 <h2 id="ajustes-de-django-para-produccion">Ajustes de Django para producción</h2>
 <p>En <code>proyecto_cv/settings.py</code>:</p>
-<pre><code class="language-python">DEBUG = 'RENDER' not in os.environ          # DEBUG off en Render
-ALLOWED_HOSTS = ['*', RENDER_EXTERNAL_HOSTNAME]
+<pre><code class="language-python">DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() == "true"
+SECRET_KEY = os.environ["SECRET_KEY"]        # obligatoria si DEBUG=False
+ALLOWED_HOSTS = os.environ["ALLOWED_HOSTS"].split(",")
+CSRF_TRUSTED_ORIGINS = os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",")
+
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_SSL_REDIRECT = True                   # configurable por entorno
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
 
 # WhiteNoise para archivos estáticos (sin nginx)
 MIDDLEWARE = [..., 'whitenoise.middleware.WhiteNoiseMiddleware', ...]
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    }
+}
 </code></pre>
 <hr />
 <h2 id="optimizaciones-aplicadas">Optimizaciones aplicadas</h2>
@@ -1902,44 +1962,57 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 <h2 id="despliegue-manual">Despliegue manual</h2>
 <ol>
 <li>Conectar el repositorio en el dashboard de Render</li>
-<li>Render detecta <code>render.yaml</code> (Blueprint) o configurar manualmente:</li>
-<li><strong>Build command:</strong> <code>chmod +x build.sh &amp;&amp; ./build.sh</code></li>
-<li><strong>Start command:</strong> <code>gunicorn proyecto_cv.wsgi:application --bind 0.0.0.0:$PORT</code></li>
-<li>Variables de entorno: <code>DJANGO_SETTINGS_MODULE=proyecto_cv.settings</code></li>
+<li>Crear un <strong>Web Service</strong> con runtime <strong>Docker</strong></li>
+<li>Render detecta <code>render.yaml</code> (Blueprint) o configurar:
+<ul>
+<li><strong>Dockerfile Path:</strong> <code>./Dockerfile</code></li>
+<li><strong>Health Check Path:</strong> <code>/health/</code></li>
+</ul>
+</li>
+<li>Añadir las variables de entorno (DEBUG, SECRET_KEY, rutas del modelo, OCR)</li>
+<li>Añadir un disco persistente montado en <code>/app/data</code></li>
 </ol>
+<h2 id="verificacion">Verificación</h2>
+<pre><code class="language-bash">curl https://TU-SERVICIO.onrender.com/health/
+# {"status": "ok", "model_exists": true, "model_loaded": false}
+</code></pre>
 <hr />
-<h2 id="solucion-de-problemas-historicos-commits-de-la-rama-deploy">Solución de problemas históricos (commits de la rama deploy)</h2>
+<h2 id="solucion-de-problemas">Solución de problemas</h2>
 <table>
 <thead>
 <tr>
 <th>Problema</th>
-<th>Solución aplicada</th>
+<th>Solución</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Python 3.14 incompatible con torch</td>
-<td>Forzar Python 3.11 vía <code>runtime.txt</code></td>
+<td>Build falla instalando torch</td>
+<td>Se instala antes con el índice CPU-only; revisar logs</td>
 </tr>
 <tr>
-<td>Compilación de tokenizers falla</td>
-<td><code>pip install --only-binary :all: tokenizers transformers</code></td>
+<td><code>TesseractNotFoundError</code></td>
+<td>La imagen ya lo incluye; verificar el Dockerfile desplegado</td>
 </tr>
 <tr>
-<td>Torch demasiado pesado</td>
-<td>Instalar desde índice CPU-only</td>
+<td>Modelo no descarga</td>
+<td>Revisar <code>MODEL_GOOGLE_DRIVE_ID</code>, cuota de Drive y logs</td>
 </tr>
 <tr>
-<td>Puerto incorrecto en Render</td>
-<td>Bind a <code>0.0.0.0:$PORT</code> con Gunicorn</td>
+<td><code>502</code> al arrancar</td>
+<td>Aumentar <code>WEB_TIMEOUT</code>; BERT tarda en cargar en CPU</td>
 </tr>
 <tr>
-<td>Carga lenta al inicio</td>
-<td>Lazy loading de imports de ML</td>
+<td>Reinicio descarga el modelo</td>
+<td>Confirmar disco persistente en <code>/app/data</code></td>
+</tr>
+<tr>
+<td>CSRF falla en producción</td>
+<td>Añadir el dominio a <code>ALLOWED_HOSTS</code> y <code>CSRF_TRUSTED_ORIGINS</code></td>
 </tr>
 </tbody>
 </table></section>
 </main>
-<footer>Proyecto IA BERT — Documentación técnica completa · Generada el 2026-08-24</footer>
+<footer>Proyecto IA BERT — Documentación técnica completa · Actualizada el 2026-11-09</footer>
 </body>
 </html>

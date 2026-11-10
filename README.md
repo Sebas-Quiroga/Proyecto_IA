@@ -25,7 +25,7 @@ Proyecto_IA_BERT/
 │   └── urls.py                     # URLs raíz
 ├── aplicacion_web/                 # Aplicación web
 │   ├── views.py                    # Vistas: subida, análisis, info del modelo
-│   ├── urls.py                     # Rutas: /, /upload/, /modelo/
+│   ├── urls.py                     # Rutas: /, /upload/, /analyze/, /modelo/, /health/
 │   └── templates/analyzer/         # Plantillas HTML + Chart.js
 ├── red_neuronal/                   # Núcleo de IA
 │   ├── src/
@@ -54,8 +54,8 @@ Proyecto_IA_BERT/
 ## Instalación rápida
 
 ```bash
-git clone https://github.com/JJ0ta19/Proyecto_IA_BERT.git
-cd Proyecto_IA_BERT
+git clone https://github.com/Sebas-Quiroga/Proyecto_IA.git
+cd Proyecto_IA
 
 # Entorno virtual
 python -m venv venv
@@ -102,8 +102,8 @@ La aplicación queda disponible en `http://127.0.0.1:8000/`
 | Tarea | Clasificación de texto (multi-clase) |
 | Categorías | 42 profesiones |
 | Dataset | 10,000 currículums (`training_data.csv`) |
-| Entrenamiento | 3 épocas · batch 16 · lr 2e-5 · split 80/20 |
-| Precisión | ~89% en validación |
+| Entrenamiento | 3 épocas · batch 16 · lr 2e-5 · split 80/20 · early stopping |
+| Precisión | Según `metrics.json` (el valor histórico de referencia era ~89%) |
 
 El modelo se entrena con transfer learning: se ajusta el BERT pre-entrenado con una capa clasificadora propia (768 → 42). El entrenamiento usa semillas fijas, `class_weight="balanced"`, early stopping y guarda el mejor checkpoint. Detalles completos en [docs/03-red-neuronal-bert.md](docs/03-red-neuronal-bert.md).
 
